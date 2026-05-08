@@ -20,6 +20,41 @@ Specifically, this project validates an architecture that minimizes the runtime 
 ## 💡 Engineering Conclusion
 In the process of intercepting 10,000 system calls, `strace` consumed approximately `2.89 seconds` of kernel time, whereas `eBPF` consumed only `1.40 seconds`. This proves that by utilizing eBPF, we can build a kernel-level dynamic tracing and system observability network without degrading application performance.
 
+## 🧠 Architecture Analysis: Why is ptrace so slow?
+```mermaid
+graph TD
+    subgraph "Legacy Observability: ptrace (strace)"
+        direction TB
+        A[Target App <br> User Space] -->|1. Syscall Trap| B(Kernel Space)
+        B -->|2. Context Switch <br> CPU Flush| C[strace <br> User Space]
+        C -->|3. Read Registers & <br> PTRACE_CONT| B
+        B -->|4. Context Switch| A
+        
+        style C fill:#ffb3b3,stroke:#e60000,stroke-width:2px,color:black
+        style B fill:#e6f2ff,stroke:#0066cc,stroke-width:2px,color:black
+    end
+
+    subgraph "Modern Observability: eBPF"
+        direction TB
+        D[Target App <br> User Space] -->|1. Syscall Trap| E(Kernel Space)
+        E -->|2. Trigger Tracepoint| F((eBPF Sandbox <br> Kernel Space))
+        F -.->|3. Map Update <br> Zero Copy| F
+        F -->|4. Resume Execution| E
+        
+        style F fill:#b3ffcc,stroke:#009933,stroke-width:2px,color:black
+        style E fill:#e6f2ff,stroke:#0066cc,stroke-width:2px,color:black
+    end
+```
+
+### 1. The Limitations of `ptrace` (The Context Switch Bottleneck)
+`strace` operates on top of `ptrace`, the traditional system call used for debugging. 
+Whenever a target process invokes a system call, the kernel generates a `SIGTRAP` to halt the execution state (`TASK_TRACED`) and wakes up the `strace` process in user space to hand over control. 
+During this interception, **heavy Context Switches occur twice per system call, causing memory protection domain shifts and CPU cache/TLB flushes.** This architectural flaw is the fundamental reason why the total kernel CPU time (`sys`) spiked by over 1.8 times in our benchmark.
+
+### 2. The `eBPF` Solution (In-Kernel JIT Execution)
+In contrast, `eBPF` allows us to write observability logic in C and inject it directly into an in-kernel sandbox (virtual machine) where it is **JIT (Just-In-Time) compiled**. 
+When the target process makes a system call, the tracing code executes immediately within the kernel space—eliminating the need to bounce back to user space **(Zero Context Switch)**. This mechanism enables safe, real-time dynamic tracing with virtually **zero overhead**, ensuring that production server performance remains completely unaffected.
+
 <details>
 <summary><b>Terminal Output</b></summary>
 <div markdown="1">

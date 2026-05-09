@@ -24,10 +24,10 @@
   기존 시스템 콜 추적 도구(`strace`)가 유발하는 유저-커널 간의 Context Switch 오버헤드를 수치화하고, eBPF의 Zero-overhead 특성을 확인합니다.
   컨테이너 격리(`clone`)를 10,000회 반복하는 부하 환경에서, `strace`는 약 **2.89초**의 커널 CPU 시간(`sys`)을 소모한 반면, 커널 내부에서 JIT 컴파일되어 실행되는 `eBPF`는 단 **1.40초**만을 소모하여 성능 저하 없는 동적 추적(Dynamic Tracing)이 가능함을 보았습니다.
 
-### ⏳ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
-* **Status:** In Progress
+### ✅ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
+* **Status:** Completed
 * **Directory:** `/02_memory_cfs`
-* **Goal:** CPU Runqueue Latency와 Memory Swap 아웃 시 발생하는 Page Fault 지연을 추적하여, 시스템 꼬리 지연(Tail Latency)의 근본 원인을 파악합니다.
+* **Summary:** eBPF를 활용해 커널 레벨의 마이크로초(us) 단위 꼬리 지연(Tail Latency) 원인(CFS 스케줄링 경합 및 Page Fault 병목)을 분석하고, 코어 친화도(CPU Affinity)와 우선순위(Nice) 튜닝을 통해 극한의 스케줄링 환경(CPU Starvation)을 성공적으로 확인했습니다.
 
 ### ⏳ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
 * **Status:** Planned

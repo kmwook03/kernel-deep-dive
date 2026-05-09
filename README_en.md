@@ -22,10 +22,10 @@ For subsequent hardware-level network buffer control (XDP) and interrupt handlin
   Measured the user-kernel space Context Switch overhead caused by traditional tracing tools (`strace`) and verified the low-overhead characteristics of `eBPF` in practice. 
   Under a stress workload repeating container isolation (`clone`) 10,000 times, `strace` consumed approximately **2.89 seconds** of kernel CPU time (`sys`). In contrast, `eBPF`, which is JIT-compiled and executed directly within the kernel, consumed only **1.40 seconds**. This hands-on experiment deepened my understanding of how to monitor systems without degrading application performance.
 
-### ⏳ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
-* **Status:** In Progress
+### ✅ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
+* **Status:** Completed
 * **Directory:** `/02_memory_cfs`
-* **Goal:** Trace CPU Runqueue Latency and Page Fault delays caused by memory swap-outs to identify the root causes of system tail latency.
+* **Summary:** Analyzed the root causes of microsecond-level tail latency (CFS scheduling contention and Page Fault bottlenecks) at the kernel level using eBPF, and successfully demonstrated extreme scheduling conditions (CPU Starvation) through CPU Affinity and priority (Nice) tuning.
 
 ### ⏳ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
 * **Status:** Planned

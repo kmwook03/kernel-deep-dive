@@ -1,38 +1,40 @@
 # 🐧 Linux Kernel Deep Dive
-A personal portfolio documenting my journey to understand and optimize the Linux kernel, with a focus on the stability and real-time requirements of mission-critical environments (e.g., defense systems, AI infrastructure).
+고가용성 및 실시간성이 요구되는 시스템(방산 체계, AI 인프라)을 위한 **리눅스 커널 심층 분석 및 최적화 프로젝트** 입니다.
 
-Through this ongoing project, I aim to study how to identify system bottlenecks in practice, apply low-overhead observability tools, and write more resource-efficient system software.
+시스템의 병목을 식별하고 제로 오버헤드로 관측하며, 하드웨어 자원을 극한으로 최적화하는 아키텍처 설계를 학습합니다.
 
 ## 🛠️ Tech Stack
-* **Language:** C (Planned expansion to Rust-based system programming)
+* **Language:** C (향후 Rust 기반의 시스템 프로그래밍으로 확장 예정)
 * **Kernel & OS:** Linux Kernel, WSL2 (Kernel 5.15+), Raspberry Pi Native Linux
 * **Observability & Network:** eBPF (CO-RE, BCC, libbpf), XDP (eXpress Data Path)
 
 ## 📌 Architecture & Environment Note
-Initial kernel observability and scheduler analysis (Steps 1 & 2) are conducted in a WSL2 environment with BTF (BPF Type Format) enabled, utilizing the CO-RE (Compile Once – Run Everywhere) mechanism.
+초기 커널 관측 및 스케줄러 분석(Step 1, 2)은 BTF(BPF Type Format)가 활성화된 WSL2 환경에서 CO-RE(Compile Once, Run Everywhere) 메커니즘을 활용하여 진행합니다.
 
-For subsequent hardware-level network buffer control (XDP) and interrupt handling (Steps 3 & 4), the target environment will be migrated to Native Linux (e.g., Raspberry Pi).
+이후 하드웨어 레벨의 네트워크 버퍼 제어(XDP) 및 인터럽트 제어(Step 3, 4)를 위해 네이티브 리눅스(Raspberry Pi 등) 환경으로 타겟을 마이그레이션할 계획입니다.
 
 ---
+
+## 🗺️ Deep Dive Roadmap & Status
 
 ### ✅ [STEP 1] Observability: ptrace vs. eBPF (Context Switch Overhead Analysis)
 * **Status:** Completed
 * **Directory:** [`/01_observability_ebpf`](./01_observability_ebpf/)
 * **Summary:** 
-  Measured the user-kernel space Context Switch overhead caused by traditional tracing tools (`strace`) and verified the low-overhead characteristics of `eBPF` in practice. 
-  Under a stress workload repeating container isolation (`clone`) 10,000 times, `strace` consumed approximately **2.89 seconds** of kernel CPU time (`sys`). In contrast, `eBPF`, which is JIT-compiled and executed directly within the kernel, consumed only **1.40 seconds**. This hands-on experiment deepened my understanding of how to monitor systems without degrading application performance.
+  기존 시스템 콜 추적 도구(`strace`)가 유발하는 유저-커널 간의 Context Switch 오버헤드를 수치화하고, eBPF의 Zero-overhead 특성을 확인합니다.
+  컨테이너 격리(`clone`)를 10,000회 반복하는 부하 환경에서, `strace`는 약 **2.89초**의 커널 CPU 시간(`sys`)을 소모한 반면, 커널 내부에서 JIT 컴파일되어 실행되는 `eBPF`는 단 **1.40초**만을 소모하여 성능 저하 없는 동적 추적(Dynamic Tracing)이 가능함을 보았습니다.
 
 ### ⏳ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
 * **Status:** In Progress
 * **Directory:** `/02_memory_cfs`
-* **Goal:** Trace CPU Runqueue Latency and Page Fault delays caused by memory swap-outs to identify the root causes of system tail latency.
+* **Goal:** CPU Runqueue Latency와 Memory Swap 아웃 시 발생하는 Page Fault 지연을 추적하여, 시스템 꼬리 지연(Tail Latency)의 근본 원인을 파악합니다.
 
 ### ⏳ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
 * **Status:** Planned
 * **Directory:** `/03_network_xdp`
-* **Goal:** Implement a defense architecture that drops massive malicious packet inflows (e.g., SYN Flooding) at the NIC driver level (`XDP_DROP`), completely bypassing the kernel's heavy `sk_buff` memory allocation overhead.
+* **Goal:** 대규모 악성 패킷(SYN Flooding) 인입 시, 커널의 거대한 `sk_buff` 메모리 할당을 우회하여 NIC 드라이버 레벨에서 패킷을 드롭(XDP_DROP)하는 방어 아키텍처를 구현합니다.
 
 ### ⏳ [STEP 4] Device Driver: Interrupt Handling Mechanism (Top & Bottom Half)
 * **Status:** Planned
 * **Directory:** `/04_driver_interrupt`
-* **Goal:** Design a fail-safe device driver architecture using Workqueues for deferred (Bottom Half) asynchronous processing, preventing kernel panics caused by interrupt storms during hardware control.
+* **Goal:** 하드웨어 제어 시 발생하는 인터럽트 폭주로 인한 커널 패닉을 방지하기 위해, Workqueue를 활용한 비동기식(Deferred Work) 안전한 드라이버 아키텍처를 설계합니다.

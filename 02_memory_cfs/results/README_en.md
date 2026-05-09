@@ -1,31 +1,31 @@
 # 02. Performance: CFS Scheduler & Page Fault Analysis
 
-## 📌 목표
-시스템의 자원(CPU, Memory) 사용률이 100%가 아님에도 발생하는 **'꼬리 지연(Tail Latency)'**의 근본 원인을 커널 레벨에서 추적합니다.
+## 📌 Objective
+This step aims to trace the root causes of **'Tail Latency'** at the kernel level—those unexplained system delays that occur even when overall CPU or memory utilization is not at 100%. 
 
-일반적인 시스템 모니터링 툴(top, htop)로는 잡을 수 없는 마이크로초(us) 단위의 스케줄러 대기 시간(Runqueue Latency)과 메모리 할당 병목(Page Fault)을 eBPF로 관측하여, 실시간성이 중요한 환경에서의 성능 튜닝 포인트를 학습합니다.
+By observing microsecond (us) scale scheduler wait times (Runqueue Latency) and memory allocation bottlenecks (Page Faults) using eBPF—metrics that are invisible to standard monitoring tools like `top` or `htop`—I seek to learn the critical performance tuning points required for real-time and high-availability environments.
 
 ## 🛠️ Test Environment & Target Workload
-* **Target Workload:** 8개의 스레드가 각각 512MB의 메모리를 동적 할당받고, 무작위 접근을 통해 고의적인 Page Fault와 CPU 경합을 유발하는 C 프로그램 (`stress_test.c`).
-* **Observability Tools:** `bpftrace`를 이용한 커널 트레이스포인트(`sched_switch`) 및 kprobe(`handle_mm_fault`) 훅킹.
+* **Target Workload:** A multi-threaded C program (`stress_test.c`) that spawns 8 threads, each dynamically allocating 512MB of memory. It intentionally triggers intensive Page Faults and CPU contention via randomized memory access.
+* **Observability Tools:** `bpftrace` utilizing kernel tracepoints (`sched_switch`) and kprobes (`handle_mm_fault`).
 
-## 📊 1. CFS 스케줄러 분석 (Runqueue Latency)
-스레드가 실행 대기열(Runqueue)에 진입한 후 실제로 CPU를 할당받기까지의 대기 시간을 측정했습니다.
-* **Fast Path:** 전체의 약 95% 이상은 0~32us 이내에 초고속으로 스케줄링 되었습니다.
-* **Tail Latency (꼬리 지연):** 스레드 경합이 심해지자 CFS가 공정성(Fairness)을 맞추기 위해 강제 컨텍스트 스위칭을 발생시켰고, 이로 인해 **최대 32ms (32,000us)** 동안 CPU를 할당받지 못하고 대기하는 치명적인 꼬리 지연 구간을 관측했습니다.
+## 📊 1. CFS Scheduler Analysis (Runqueue Latency)
+Measured the wait time from when a thread enters the execution queue (Runqueue) to when it actually gets scheduled onto the CPU.
+* **Fast Path:** Over 95% of the scheduling events were executed at lightning speed, within 0~32us.
+* **Tail Latency:** As thread contention intensified, the Completely Fair Scheduler (CFS) forced context switches to maintain fairness. During this, I observed a critical tail latency phase where threads waited up to **32ms (32,000us)** without receiving CPU time.
 
-## 📊 2. 메모리 서브시스템 분석 (Page Fault Latency)
-가상 메모리에 물리 메모리가 매핑되는 `handle_mm_fault` 함수의 처리 시간을 측정하여 명확한 **쌍봉형(Bimodal) 분포**를 확인했습니다.
-* **Minor Page Fault (1us 이하):** 여유 메모리 공간을 즉시 할당받는 경우, 1us 이하의 속도로 매우 빠르게 처리되었습니다.
-* **Major Page Fault / Compaction (0.5ms ~ 8ms):** 시스템 메모리 압박이 심해져 커널이 물리 메모리를 확보(Swap, Compaction 등)해야 하는 상황에서 지연 시간이 **최대 4,000배(4ms 이상) 폭증**하는 병목 구간이 형성되었습니다.
+## 📊 2. Memory Subsystem Analysis (Page Fault Latency)
+Measured the execution time of the `handle_mm_fault` function (which maps physical memory to virtual memory), revealing a clear **Bimodal Distribution**.
+* **Minor Page Fault (Under 1us):** When free memory was readily available, the mapping was handled incredibly fast, taking less than 1us.
+* **Major Page Fault / Compaction (0.5ms ~ 8ms):** When system memory pressure increased and the kernel had to secure physical memory (e.g., via Swapping or Memory Compaction), a massive bottleneck formed. In this zone, latency spiked by up to **4,000 times (over 4ms)** compared to the fast path.
 
-## 💡 결론
-이 실험을 통해 애플리케이션 코드 레벨에서의 최적화뿐만 아니라, **OS 커널의 스케줄링 큐와 메모리 파편화 상태**가 시스템 응답 속도에 결정적인 영향을 미친다는 것을 확인했습니다.
+## 💡 Engineering Conclusion
+This experiment verified that system response times are not solely dictated by application-level code optimization; the **OS kernel's scheduling queues and memory fragmentation states** play a decisive role. 
 
-향후 고성능 시스템 아키텍처를 설계할 때, 메모리 풀링(Memory Pooling) 기법이나 스레드 친화도(CPU Affinity) 조절을 통해 커널의 개입(Hard Page Fault, Context Switch)을 최소화해야 함을 깊이 체감했습니다.
+Moving forward, this hands-on experience deeply reinforced the necessity of minimizing kernel intervention (e.g., avoiding Hard Page Faults and excessive Context Switches) by utilizing techniques like Memory Pooling and adjusting CPU Affinity when designing high-performance system architectures.
 
 <details>
-<summary><b>터미널 출력</b></summary>
+<summary><b>Terminal Output</b></summary>
 <div markdown="1">
 
 ```text
@@ -81,39 +81,40 @@ Tracing Page Fault Latency for 'stress_test'... Hit Ctrl-C to end.
 ```
 </details>
 
-## 🔧 성능 튜닝 시도
-앞서 관측한 32ms의 꼬리 지연은 CFS(Completely Fair Scheduler)가 모든 스레드에 CPU를 공평하게 나눠주려다가 발생한 것으로 생각됩니다.
+## 🔧 Performance Tuning Attempts
+The previously observed 32ms tail latency is believed to be caused by the Completely Fair Scheduler (CFS) attempting to distribute CPU time equally among all threads.
 
-하지만 미사일 요격 시스템이나 자율 주행 브레이크 제어는 공평함이 필요 없는 최우선 작업입니다. 즉, 무조건적인 최우선 실행이 필요합니다.
+However, critical tasks like missile interception systems or autonomous driving braking controls do not require fairness; they require absolute, unconditional priority execution.
 
-이 문제에 대해 연구하기 위해 기존의 `stress_test.c` 코드에서 특정 스레드(예: Thread 0)만 리눅스의 실시간 스케줄러 정책인 `SCHED_FIFO` 또는 `SCHED_RR`로 권한을 격상시킨 후 다시 부하 측정을 진행해보았습니다. (`stress_test2.c`)
+To investigate this, I modified the `stress_test.c` code (`stress_test2.c`) to elevate the priority of a specific thread (Thread 0) using Linux's real-time scheduling policies (`SCHED_FIFO` or `SCHED_RR`) and re-measured the load.
 
-### 💥 문제 발생
+### 💥 Encountered Issues
 ```bash
 kmwook@kmwookgram:~/kernel-deep-dive/02_memory_cfs$ sudo ./workload/stress_test2
 === CFS vs SCHED_FIFO Scheduling Test ===
 Thread 0 (RT) failed to create - sudo permission required: Success
 ```
 
-#### 문제 1. `failed`와 `Success` 동시 출력
-에러 출력에 사용한 `perror()` 함수는 전역 변수인 `errno` 값을 읽어서 문자로 바꿔줍니다. 하지만 `pthread` 라이브러리 함수들은 에러가 나도 `errno`를 세팅하지 않고 함수 반환값으로 에러 코드를 직접 뱉습니다.
+#### Problem 1. Simultaneous output of `failed` and `Success`
+The `perror()` function used for error output reads the global variable `errno` and converts it to a string. However, `pthread` library functions do not set `errno` upon failure; instead, they return the error code directly as the function's return value.
 
-따라서 `errno`는 여전히 `0`(성공)인 상태였고, `perror()`는 `errno`만 읽고 `Success`라고 출력한 것이었습니다.
+Therefore, `errno` was still `0` (Success), and `perror()`, which only reads `errno`, mistakenly printed `Success`.
 
-#### 문제 2. sudo를 사용했는데도 거부당함 (EPERM)
-WSL2 및 많은 컨테이너 환경은 호스트 안정성을 위해 cgroup의 RT bandwidth를 제한하거나 0으로 설정하여 `SCHED_FIFO/SCHED_RR` 같은 real-time scheduling 사용을 기본적으로 차단합니다.
+#### Problem 2. Permission Denied (EPERM) despite using `sudo`
+To maintain host stability, WSL2 and many container environments fundamentally block the use of real-time scheduling (like `SCHED_FIFO`/`SCHED_RR`) by limiting or zeroing out the cgroup's RT bandwidth.
 
-이는 `guest/container` 내부의 RT busy loop가 CPU starvation을 일으키는 것을 방지하기 위함입니다.
+This is a defensive mechanism designed to prevent an RT busy loop inside the guest/container from causing CPU starvation on the host machine.
 
-### 💡 대안 우회 전략 : CFS 내에서의 극단적 우선순위(Nice) 조작
-WSL2의 커널(Cgroup) 제약을 우회하기 위해 커널을 재빌드하는 대신, **현재 허용된 CFS 스케줄러 환경 내에서 프로세스 우선순위(Nice value)를 극한으로 조작**하여 VIP 스레드를 보호할 수 있는지 실험 방향을 수정했습니다.
+### 💡 Workaround Strategy: Extreme Priority (Nice) Manipulation within CFS
+Instead of rebuilding the WSL2 kernel to bypass the cgroup restrictions, I shifted the experiment's focus to see if the VIP thread could be protected by **manipulating process priorities (Nice values) to their extremes within the allowed CFS environment.**
 
-1. **전략:** 특정 스레드(Thread 0)에는 커널이 허용하는 최고 우선순위인 `Nice -20`을 부여하고, 나머지 스레드들에는 최하 우선순위인 `Nice 19`를 부여(`setpriority` 시스템 콜 활용).
-2. **실행 및 관측:** 다시 부하 테스트를 진행하며 eBPF로 스케줄링 양상을 관측.
+1. **Strategy:** Assign the highest kernel-allowed priority (Nice -20) to a specific thread (Thread 0), and the lowest priority (Nice 19) to the rest using the setpriority system call.
 
-### 📊 3. 스케줄링 제어 튜닝 결과 1
+2. **Execution & Observation:** Run the stress test again and observe the scheduling behavior via eBPF.
+
+### 📊 3. Scheduling Control Tuning Result 1 (Multi-core)
 <details>
-<summary><b>터미널 출력</b></summary>
+<summary><b>Terminal Output</b></summary>
 <div markdown="1">
 
 ```text
@@ -164,21 +165,22 @@ Tracing CPU Runqueue Latency ... Hit Ctrl-C to end.
 </details>
 
 
-Thread 0이 먼저 수행되어 종료되기를 기대했으나 예상대로 나오지 않았습니다. 원인은 다음과 같이 분석됩니다.
+I expected Thread 0 to execute and finish first, but the results did not align with my hypothesis. The cause was analyzed as follows:
 
-#### 멀티 코어(Multi-core)
-스케줄러 우선 순위(nice value)는 여러 스레드가 하나의 CPU 코어를 차지하려고 싸울 때(Contention)만 의미가 있습니다.
+#### The Multi-core Trap
+Scheduler priority (nice value) is only meaningful when multiple threads compete for a single CPU core **(Contention)**.
 
-제가 연구에 사용한 노트북은 LG gram 360 2022모델로 `11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz(2.42 GHz)` CPU가 탑재되어있습니다. 
+The laptop I used for this research (LG gram 360 2022) is equipped with an `11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz(2.42 GHz)` CPU.
 
-인텔의 하이퍼스레딩 기술 덕분에 OS 입장에서는 8개의 논리 코어로 인식되므로 스레드 하나가 하나의 코어를 사용하는 성능을 보이게 됩니다. 따라서 대기열 자체가 생기지 않기 때문에 시나리오대로 실행되지 않았습니다.
+Thanks to Intel's Hyper-Threading technology, the OS recognizes 8 logical cores. Therefore, the 8 threads were distributed almost 1-to-1 across the logical cores. Because no actual queue or contention formed, the priority scenario failed to execute as intended.
 
-### 📊 4. 스케줄링 제어 튜닝 결과 2
+### 📊 4. Scheduling Control Tuning Result 2 (Single-core)
 
-#### 해결 방안 (`taskset -c 0`)
+#### The Solution (`taskset -c 0`)
+I restricted the execution to a single core using CPU Affinity.
 
 <details>
-<summary><b>터미널 출력</b></summary>
+<summary><b>Terminal Output</b></summary>
 <div markdown="1">
 
 ```text
@@ -248,14 +250,13 @@ Tracing CPU Runqueue Latency ... Hit Ctrl-C to end.
 ```
 </details>
 
-eBPF 히스토그램을 살펴보면 앞서 살펴본 결과와 달리 꼬리가 `[1M, 2M)` 만큼 길어진 것을 확인했습니다. 아까는 멀티 코어 상태에서 테스트 했으나, 이번에는 싱글 코어로 진행했기 때문에 우선순위 스케줄링에 따라 끝까지 CPU 할당을 못받은 스레드가 대기열에서 1초 이상 굶은 것입니다.
+Looking at the eBPF histogram, unlike the previous results, the tail extended dramatically to the `[1M, 2M)` bucket. Because I tested this in a single-core environment (triggering severe contention), the lower-priority threads were pushed down the queue, starving for over 1 second without receiving any CPU allocation.
 
-## ❓추가 실험 : 단일 코어에서 CFS 동작 확인
-
-첫 실험은 멀티 코어 환경에서만 CFS에 따라 부하를 주었기 때문에 이번에는 코어 수를 하나로 줄여서 다시 시도해보았습니다.
+## ❓Additional Experiment: Observing CFS Behavior on a Single Core
+Since the very first experiment was conducted in a multi-core environment, I ran it again under a single-core constraint to observe pure CFS behavior.
 
 <details>
-<summary><b>터미널 출력</b></summary>
+<summary><b>Terminal Output</b></summary>
 <div markdown="1">
 
 ```text
@@ -302,26 +303,26 @@ Tracing CPU Runqueue Latency ... Hit Ctrl-C to end.
 ```
 </details>
 
-이전 VIP 테스트에서는 일반 스레드들이 1~2초 동안 한 번도 실행되지 못하는 기아 상태에 빠졌습니다. 하지만 CFS 테스트의 히스토그램을 보면 가장 늦게 기다린 시간이 32ms~64ms로 짧습니다.
+In the previous VIP test, normal threads suffered from CPU Starvation, waiting 1~2 seconds without execution. However, this pure CFS test histogram shows that the maximum wait time was much shorter, capped at 32ms~64ms.
 
-이렇게 꼬리 지연이 짧은 알고리즘이 좋아보일 수 있지만, 이는 도메인에 따라 다르다고 봅니다.
+While an algorithm with a shorter tail latency might generally seem "better," it strictly depends on the domain.
 
-범용 시스템(웹 서버, 데스크탑 등)에서는 당연히 CFS가 압도적으로 좋습니다. 하지만 하드 리얼타임 시스템(방산 레이더, 자율 주행, 심박 조율기 등)에서 CFS는 생명을 위협할 수 있는 위험한 선택입니다. 미사일이 날아오고 있는데 '공평함'을 위해서 미사일 요격 시스템을 대기열에 넣어버리고 파일 다운로드 스레드 따위를 실행 시킨다면 치명적인 결과가 발생할 것입니다.
+For general-purpose systems (web servers, desktops), CFS is overwhelmingly superior. However, in hard real-time systems (defense radars, autonomous driving, pacemakers), CFS is a dangerous choice that could threaten lives. If fairness dictates that a critical missile interception system is queued behind a file download thread, the consequences would be fatal.
 
-## 💡 최종 결론
+## 💡 Final Conclusion & Engineering Insight
 
-리눅스 커널의 스케줄러(CFS)와 메모리 서브시스템(Page Fault)의 동작을 eBPF로 직접 훅킹하며 튜닝해 본 결과 다음과 같은 통찰을 얻을 수 있었습니다.
+By hooking into and tuning the Linux kernel's scheduler (CFS) and memory subsystem (Page Fault) directly with eBPF, I gained the following profound insights:
 
-1. **마이크로초(us) 단위 관측(Observability)의 중요성**
+1. **The Importance of Microsecond-Level Observability**
 
-   `top`이나 `htop` 같은 유저 스페이스 도구로는 CPU 사용률이 낮아 보여도 시스템 내부에 치명적인 병목이 숨어있을 수 있음을 확인했습니다. 밀리초(ms)에서 마이크로초(us) 단위의 꼬리 지연(Tail Latency)과 CPU 기아(Starvation) 상태를 잡아내기 위해서는 eBPF와 같은 커널 레벨의 동적 추적 기술이 필수적입니다.
+   User-space tools like `top` or `htop` can easily mask fatal internal bottlenecks, even when CPU usage appears low. To capture millisecond to microsecond-level tail latencies and CPU Starvation, kernel-level dynamic tracing technologies like eBPF are indispensable.
 
-2. **도메인에 따른 OS 자원 관리의 양면성**
+2. **The Duality of OS Resource Management Across Domains**
 
-   스케줄러에 '절대적으로 완벽한 알고리즘'은 존재하지 않음을 증명했습니다. 웹 서버와 같은 일반적인 환경에서는 기아 상태를 방지하는 CFS의 '공평함'이 훌륭하게 작동하지만, **미사일 요격 레이더 시스템이나 실시간 AI 추론 인프라**처럼 하드 리얼타임(Hard Real-time)이 요구되는 도메인에서는 이 공평함이 도리어 치명적인 지연을 유발합니다. 목적에 맞춰 OS의 정책을 비틀고 제어할 줄 아는 능력이 중요함을 체감했습니다.
+   I proved that there is no 'absolutely perfect algorithm' for scheduling. While the 'fairness' of CFS works brilliantly to prevent starvation in general environments, this very fairness induces fatal delays in domains requiring Hard Real-time capabilities, such as missile interception radar systems or real-time AI inference infrastructure. I realized the importance of having the skill to manipulate and control OS policies according to the specific purpose.
 
-3. **하드웨어 아키텍처와 커널의 유기적 이해**
+3. **Organic Understanding of Hardware Architecture and the Kernel**
 
-   스케줄링 우선순위(Nice)를 조작하더라도 하이퍼스레딩 기반의 멀티 코어 환경에서는 그 효과가 희석된다는 점을 마주했습니다. 소프트웨어적 우선순위 튜닝은 반드시 `taskset`과 같은 **CPU Affinity(코어 친화도)** 제어를 통해 하드웨어 자원의 물리적 격리가 동반되어야만 진정한 위력을 발휘한다는 것을 실증적으로 확인했습니다.
+   I encountered firsthand how the effects of software scheduling priority (Nice) are diluted in a multi-core environment based on Hyper-Threading. I empirically confirmed that software priority tuning must be accompanied by the physical isolation of hardware resources—using **CPU Affinity** controls like `taskset`—to unleash its true power.
 
-**🚀 Next Step:** 커널 내부의 스케줄링과 메모리 복사(Page Fault)가 유발하는 오버헤드를 깊이 이해했으므로, 다음 단계에서는 외부에서 유입되는 대규모 네트워크 트래픽을 커널의 네트워크 스택(`sk_buff`)에 도달하기 전에 NIC 드라이버 레벨에서 직접 차단해버리는 **XDP(eXpress Data Path) 기반 Zero-copy 방화벽 아키텍처** 연구로 확장해 나갈 계획입니다.
+🚀 **Next Step:** Having deeply understood the overhead caused by internal kernel scheduling and memory copying (Page Faults), my next phase will expand into **XDP (eXpress Data Path)-based Zero-copy Firewall Architecture**. This will involve intercepting and dropping massive incoming network traffic directly at the NIC driver level, long before it ever reaches the kernel's network stack (`sk_buff`).

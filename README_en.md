@@ -24,7 +24,7 @@ For subsequent hardware-level network buffer control (XDP) and interrupt handlin
 
 ### ✅ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
 * **Status:** Completed
-* **Directory:** `/02_memory_cfs`
+* **Directory:** [`/02_memory_cfs`](./02_memory_cfs/)
 * **Summary:** Analyzed the root causes of microsecond-level tail latency (CFS scheduling contention and Page Fault bottlenecks) at the kernel level using eBPF, and successfully demonstrated extreme scheduling conditions (CPU Starvation) through CPU Affinity and priority (Nice) tuning.
 
 ### ⏳ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)

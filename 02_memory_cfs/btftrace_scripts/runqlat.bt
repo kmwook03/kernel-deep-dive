@@ -1,0 +1,21 @@
+#!/usr/bin/env bpftrace
+
+BEGIN {
+    printf("Tracing CPU Runqueue Latency ... Hit Ctrl-C to end.\n");
+}
+
+// Record the time when a thread enters a Run queue
+tracepoint:sched:sched_wakeup,
+tracepoint:sched:sched_wakeup_new {
+    @qtime[args->pid] = nsecs;
+}
+
+// When a thread is actually assigned a CPU and context-switching occured
+tracepoint:sched:sched_switch {
+    if (@qtime[args->next_pid]) {
+        // wait time = current time - entered in queue time
+        // microsec
+        @runqlat_us = hist((nsecs - @qtime[args->next_pid]) / 1000);
+        delete(@qtime[args->next_pid]);
+    }
+}

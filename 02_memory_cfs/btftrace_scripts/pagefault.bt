@@ -1,0 +1,16 @@
+#!/usr/bin/env bpftrace
+
+BEGIN {
+    printf("Tracing Page Fault Latency for 'stress_test'... Hit Ctrl-C to end.\n");
+}
+
+// When kernel starting physical memory mapping
+kprobe:handle_mm_fault /comm == "stress_test"/ {
+    @start[tid] = nsecs;
+}
+
+// When kernel return after complete the mapping
+kretprobe:handle_mm_fault /@start[tid]/ {
+    @pf_lat_us = hist((nsecs - @start[tid]) / 1000);
+    delete(@start[tid]);
+}

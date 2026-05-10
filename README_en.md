@@ -4,9 +4,14 @@ A personal portfolio documenting my journey to understand and optimize the Linux
 Through this ongoing project, I aim to study how to identify system bottlenecks in practice, apply low-overhead observability tools, and write more resource-efficient system software.
 
 ## 🛠️ Tech Stack
-* **Language:** C (Planned expansion to Rust-based system programming)
-* **Kernel & OS:** Linux Kernel, WSL2 (Kernel 5.15+), Raspberry Pi Native Linux
-* **Observability & Network:** eBPF (CO-RE, BCC, libbpf), XDP (eXpress Data Path)
+* **Language**
+  <br>![C](https://img.shields.io/badge/C-00599C?style=for-the-badge&logo=c&logoColor=white) ![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white) *(Planned expansion to Rust-based system programming)*
+* **Kernel & OS**
+  <br>![Linux](https://img.shields.io/badge/Linux_Kernel-FCC624?style=for-the-badge&logo=linux&logoColor=black) ![WSL2](https://img.shields.io/badge/WSL2_(5.15+)-0078D6?style=for-the-badge&logo=windows&logoColor=white) ![Raspberry Pi](https://img.shields.io/badge/Raspberry_Pi_Native-A22846?style=for-the-badge&logo=Raspberry%20Pi&logoColor=white)
+* **Observability & Network**
+  <br>![eBPF](https://img.shields.io/badge/eBPF-4479A1?style=for-the-badge&logo=linux&logoColor=white) ![XDP](https://img.shields.io/badge/XDP-E34F26?style=for-the-badge&logo=linux&logoColor=white) *(CO-RE, BCC, libbpf / eXpress Data Path)*
+* **AI Pair Programming**
+  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) *(Hypothesis setting, validation, and kernel architecture mentorship)*
 
 ## 📌 Architecture & Environment Note
 Initial kernel observability and scheduler analysis (Steps 1 & 2) are conducted in a WSL2 environment with BTF (BPF Type Format) enabled, utilizing the CO-RE (Compile Once – Run Everywhere) mechanism.

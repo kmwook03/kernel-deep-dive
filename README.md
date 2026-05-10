@@ -4,9 +4,14 @@
 시스템의 병목을 식별하고 제로 오버헤드로 관측하며, 하드웨어 자원을 극한으로 최적화하는 아키텍처 설계를 학습합니다.
 
 ## 🛠️ Tech Stack
-* **Language:** C (향후 Rust 기반의 시스템 프로그래밍으로 확장 예정)
-* **Kernel & OS:** Linux Kernel, WSL2 (Kernel 5.15+), Raspberry Pi Native Linux
-* **Observability & Network:** eBPF (CO-RE, BCC, libbpf), XDP (eXpress Data Path)
+* **Language**
+  <br>![C](https://img.shields.io/badge/C-00599C?style=for-the-badge&logo=c&logoColor=white) ![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white) *(향후 시스템 프로그래밍 확장 예정)*
+* **Kernel & OS**
+  <br>![Linux](https://img.shields.io/badge/Linux_Kernel-FCC624?style=for-the-badge&logo=linux&logoColor=black) ![WSL2](https://img.shields.io/badge/WSL2_(5.15+)-0078D6?style=for-the-badge&logo=windows&logoColor=white) ![Raspberry Pi](https://img.shields.io/badge/Raspberry_Pi_Native-A22846?style=for-the-badge&logo=Raspberry%20Pi&logoColor=white)
+* **Observability & Network**
+  <br>![eBPF](https://img.shields.io/badge/eBPF-4479A1?style=for-the-badge&logo=linux&logoColor=white) ![XDP](https://img.shields.io/badge/XDP-E34F26?style=for-the-badge&logo=linux&logoColor=white) *(CO-RE, BCC, libbpf / eXpress Data Path)*
+* **AI Pair Programming**
+  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) *(가설 설정, 검증 및 커널 아키텍처 멘토링)*
 
 ## 📌 Architecture & Environment Note
 초기 커널 관측 및 스케줄러 분석(Step 1, 2)은 BTF(BPF Type Format)가 활성화된 WSL2 환경에서 CO-RE(Compile Once, Run Everywhere) 메커니즘을 활용하여 진행합니다.

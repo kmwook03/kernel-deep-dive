@@ -29,10 +29,10 @@
 * **Directory:** [`/02_memory_cfs`](./02_memory_cfs/)
 * **Summary:** eBPF를 활용해 커널 레벨의 마이크로초(us) 단위 꼬리 지연(Tail Latency) 원인(CFS 스케줄링 경합 및 Page Fault 병목)을 분석하고, 코어 친화도(CPU Affinity)와 우선순위(Nice) 튜닝을 통해 극한의 스케줄링 환경(CPU Starvation)을 성공적으로 확인했습니다.
 
-### ⏳ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
-* **Status:** Planned
-* **Directory:** `/03_network_xdp`
-* **Goal:** 대규모 악성 패킷(SYN Flooding) 인입 시, 커널의 거대한 `sk_buff` 메모리 할당을 우회하여 NIC 드라이버 레벨에서 패킷을 드롭(XDP_DROP)하는 방어 아키텍처를 구현합니다.
+### ✅ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
+* **Status:** Completed
+* **Directory:** [`/03_network_xdp`](./03_network_xdp/)
+* **Summary:** 전통적인 리눅스 네트워크 스택(`sk_buff` 할당)이 유발하는 구조적 병목을 분석하고, eBPF/XDP를 통해 NIC 드라이버 레벨에서 악성 UDP 패킷을 즉시 드랍(OS Bypass)함으로써 공격 방어 속도를 2배 이상 끌어올린 고속 Zero-copy 방화벽을 구현했습니다.
 
 ### ⏳ [STEP 4] Device Driver: Interrupt Handling Mechanism (Top & Bottom Half)
 * **Status:** Planned

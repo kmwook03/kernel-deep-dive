@@ -27,10 +27,10 @@ For subsequent hardware-level network buffer control (XDP) and interrupt handlin
 * **Directory:** [`/02_memory_cfs`](./02_memory_cfs/)
 * **Summary:** Analyzed the root causes of microsecond-level tail latency (CFS scheduling contention and Page Fault bottlenecks) at the kernel level using eBPF, and successfully demonstrated extreme scheduling conditions (CPU Starvation) through CPU Affinity and priority (Nice) tuning.
 
-### ⏳ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
-* **Status:** Planned
-* **Directory:** `/03_network_xdp`
-* **Goal:** Implement a defense architecture that drops massive malicious packet inflows (e.g., SYN Flooding) at the NIC driver level (`XDP_DROP`), completely bypassing the kernel's heavy `sk_buff` memory allocation overhead.
+### ✅ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
+* **Status:** Completed
+* **Directory:** [`/03_network_xdp`](./03_network_xdp/)
+* **Summary:** Analyzed the structural bottlenecks caused by the traditional Linux network stack (`sk_buff` allocation) and implemented a high-speed Zero-copy firewall. By leveraging eBPF/XDP to instantly drop malicious UDP packets at the NIC driver level (OS Bypass), the defense throughput was boosted by more than 2x.
 
 ### ⏳ [STEP 4] Device Driver: Interrupt Handling Mechanism (Top & Bottom Half)
 * **Status:** Planned

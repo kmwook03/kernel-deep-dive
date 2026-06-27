@@ -7,7 +7,7 @@
 
 ## 🛠️ Test Environment & Target Workload
 * **Target Workload:** 파이썬 `socket` 라이브러리를 활용하여 로컬 루프백(`127.0.0.1`)의 9999번 포트로 초당 수십만 개의 UDP 패킷을 쏟아붓는 DDoS 시뮬레이션 스크립트 (`udp_flood.py`).
-* **Defense & Observability Tools:** * C언어로 작성된 eBPF/XDP 프로그램 (`xdp_drop_port.c`): 9999번 포트 패킷 식별 및 `XDP_DROP` 수행.
+* **Defense & Observability Tools:** C언어로 작성된 eBPF/XDP 프로그램 (`xdp_drop_port.c`): 9999번 포트 패킷 식별 및 `XDP_DROP` 수행.
   * `tcpdump`: 커널 네트워크 스택(AF_PACKET) 레벨에서의 패킷 도달 여부 관측.
 
 ## 📊 1. Baseline: 전통적인 커널 네트워크 스택의 한계 (방어막 부재)

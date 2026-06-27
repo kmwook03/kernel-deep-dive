@@ -39,7 +39,7 @@
 * **Directory:** [`/03_network_xdp`](./03_network_xdp/)
 * **Summary:** 전통적인 리눅스 네트워크 스택(`sk_buff` 할당)이 유발하는 구조적 병목을 분석하고, eBPF/XDP를 통해 NIC 드라이버 레벨에서 악성 UDP 패킷을 즉시 드랍(OS Bypass)함으로써 공격 방어 속도를 2배 이상 끌어올린 고속 Zero-copy 방화벽을 구현했습니다.
 
-### ⏳ [STEP 4] Device Driver: Interrupt Handling Mechanism (Top & Bottom Half)
+### ⏳ [STEP 4] Interrupt Handling: Designing Low-Latency Linux Device Drivers (Top & Bottom Half)
 * **Status:** Planned
 * **Directory:** `/04_driver_interrupt`
 * **Goal:** 하드웨어 제어 시 발생하는 인터럽트 폭주로 인한 커널 패닉을 방지하기 위해, Workqueue를 활용한 비동기식(Deferred Work) 안전한 드라이버 아키텍처를 설계합니다.

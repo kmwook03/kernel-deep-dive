@@ -1,0 +1,21 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2712";
+
+    fragment@0 {
+        target-path = "/";
+
+        __overlay__ {
+
+            irq: irq {
+                compatible = "kmwook,irq";
+
+                button-gpios = <&gpio 17 0>;
+
+                status = "okay";
+            };
+        };
+    };
+};

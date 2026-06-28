@@ -1,4 +1,4 @@
-obj-m += bad_irq.o
+obj-m += workqueue_irq.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)

@@ -5,13 +5,13 @@ Through this ongoing project, I aim to study how to identify system bottlenecks 
 
 ## 🛠️ Tech Stack
 * **Language**
-  <br>![C](https://img.shields.io/badge/C-00599C?style=for-the-badge&logo=c&logoColor=white) ![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white) *(Planned expansion to Rust-based system programming)*
+  <br>![C](https://img.shields.io/badge/C-00599C?style=for-the-badge&logo=c&logoColor=white) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
 * **Kernel & OS**
   <br>![Linux](https://img.shields.io/badge/Linux_Kernel-FCC624?style=for-the-badge&logo=linux&logoColor=black) ![WSL2](https://img.shields.io/badge/WSL2_(5.15+)-0078D6?style=for-the-badge&logo=windows&logoColor=white) ![Raspberry Pi](https://img.shields.io/badge/Raspberry_Pi_Native-A22846?style=for-the-badge&logo=Raspberry%20Pi&logoColor=white)
 * **Observability & Network**
   <br>![eBPF](https://img.shields.io/badge/eBPF-4479A1?style=for-the-badge&logo=linux&logoColor=white) ![XDP](https://img.shields.io/badge/XDP-E34F26?style=for-the-badge&logo=linux&logoColor=white) *(CO-RE, BCC, libbpf / eXpress Data Path)*
 * **AI Pair Programming**
-  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) *(Hypothesis setting, validation, and kernel architecture mentorship)*
+  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) ![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-412991?style=for-the-badge&logo=openai&logoColor=white)*(Hypothesis setting, validation, and kernel architecture mentorship)*
 
 ## 📌 Architecture & Environment Note
 Initial kernel observability and scheduler analysis (Steps 1 & 2) are conducted in a WSL2 environment with BTF (BPF Type Format) enabled, utilizing the CO-RE (Compile Once – Run Everywhere) mechanism.
@@ -37,7 +37,7 @@ For subsequent hardware-level network buffer control (XDP) and interrupt handlin
 * **Directory:** [`/03_network_xdp`](./03_network_xdp/)
 * **Summary:** Analyzed the structural bottlenecks caused by the traditional Linux network stack (`sk_buff` allocation) and implemented a high-speed Zero-copy firewall. By leveraging eBPF/XDP to instantly drop malicious UDP packets at the NIC driver level (OS Bypass), the defense throughput was boosted by more than 2x.
 
-### ⏳ [STEP 4] Device Driver: Interrupt Handling Mechanism (Top & Bottom Half)
-* **Status:** Planned
-* **Directory:** `/04_driver_interrupt`
-* **Goal:** Design a fail-safe device driver architecture using Workqueues for deferred (Bottom Half) asynchronous processing, preventing kernel panics caused by interrupt storms during hardware control.
+### ✅ [STEP 4] Device Driver: Interrupt Handling Mechanism (Top & Bottom Half)
+* **Status:** Completed
+* **Directory:** [`/04_driver_interrupt`](/04_driver_interrupt/)
+* **Summary:** Verified the importance of Top Half / Bottom Half interrupt handling on Raspberry Pi 5 hardware by comparing an intentionally heavy ISR with a Workqueue-based deferred design. Using BCC/eBPF tracepoints to measure IRQ handler duration, the bad driver held the CPU in hard interrupt context for an average of **126.19 ms**, while the Workqueue design reduced the measured Top Half duration to only **2.73 us** by moving long-running work into a kernel worker thread.

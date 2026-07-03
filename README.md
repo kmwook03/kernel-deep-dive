@@ -5,13 +5,13 @@
 
 ## 🛠️ Tech Stack
 * **Language**
-  <br>![C](https://img.shields.io/badge/C-00599C?style=for-the-badge&logo=c&logoColor=white) ![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white) *(향후 시스템 프로그래밍 확장 예정)*
+  <br>![C](https://img.shields.io/badge/C-00599C?style=for-the-badge&logo=c&logoColor=white) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
 * **Kernel & OS**
   <br>![Linux](https://img.shields.io/badge/Linux_Kernel-FCC624?style=for-the-badge&logo=linux&logoColor=black) ![WSL2](https://img.shields.io/badge/WSL2_(5.15+)-0078D6?style=for-the-badge&logo=windows&logoColor=white) ![Raspberry Pi](https://img.shields.io/badge/Raspberry_Pi_Native-A22846?style=for-the-badge&logo=Raspberry%20Pi&logoColor=white)
 * **Observability & Network**
   <br>![eBPF](https://img.shields.io/badge/eBPF-4479A1?style=for-the-badge&logo=linux&logoColor=white) ![XDP](https://img.shields.io/badge/XDP-E34F26?style=for-the-badge&logo=linux&logoColor=white) *(CO-RE, BCC, libbpf / eXpress Data Path)*
 * **AI Pair Programming**
-  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) *(가설 설정, 검증 및 커널 아키텍처 멘토링)*
+  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) ![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-412991?style=for-the-badge&logo=openai&logoColor=white) *(가설 설정, 검증 및 커널 아키텍처 멘토링)*
 
 ## 📌 Architecture & Environment Note
 초기 커널 관측 및 스케줄러 분석(Step 1, 2)은 BTF(BPF Type Format)가 활성화된 WSL2 환경에서 CO-RE(Compile Once, Run Everywhere) 메커니즘을 활용하여 진행합니다.
@@ -39,7 +39,8 @@
 * **Directory:** [`/03_network_xdp`](./03_network_xdp/)
 * **Summary:** 전통적인 리눅스 네트워크 스택(`sk_buff` 할당)이 유발하는 구조적 병목을 분석하고, eBPF/XDP를 통해 NIC 드라이버 레벨에서 악성 UDP 패킷을 즉시 드랍(OS Bypass)함으로써 공격 방어 속도를 2배 이상 끌어올린 고속 Zero-copy 방화벽을 구현했습니다.
 
-### ⏳ [STEP 4] Interrupt Handling: Designing Low-Latency Linux Device Drivers (Top & Bottom Half)
-* **Status:** Planned
-* **Directory:** `/04_driver_interrupt`
-* **Goal:** 하드웨어 제어 시 발생하는 인터럽트 폭주로 인한 커널 패닉을 방지하기 위해, Workqueue를 활용한 비동기식(Deferred Work) 안전한 드라이버 아키텍처를 설계합니다.
+### ✅ [STEP 4] Interrupt Handling: Designing Low-Latency Linux Device Drivers (Top & Bottom Half)
+* **Status:** Completed
+* **Directory:** [`/04_driver_interrupt`](./04_driver_interrupt/)
+* **Summary:** Raspberry Pi 5 하드웨어 환경에서 의도적으로 무겁게 설계된 ISR과 Workqueue 기반의 지연(Deferred) 설계를 비교하여, Top Half 및 Bottom Half 인터럽트 처리 분리의 중요성을 검증했습니다.
+BCC/eBPF 트레이스포인트를 활용해 IRQ 핸들러 실행 시간을 측정한 결과, 잘못 설계된 드라이버는 평균 126.19 ms 동안 하드 인터럽트 컨텍스트에서 CPU를 점유한 반면, Workqueue 기반 설계는 오래 걸리는 작업을 커널 워커 스레드(Worker thread)로 위임함으로써 관측된 Top Half 소요 시간을 단 2.73 us로 감소시켰습니다.

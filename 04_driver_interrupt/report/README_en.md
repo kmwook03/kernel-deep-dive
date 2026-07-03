@@ -11,6 +11,7 @@ The objective of this experiment is to verify, with real measurements on Raspber
 * **Hardware:** Raspberry Pi 5 Model B Rev 1.0
 * **OS / Kernel:** Raspberry Pi OS, Linux `6.18.34+rpt-rpi-2712` (`aarch64`)
 * **Interrupt Source:** GPIO 17 button input, registered through a custom Device Tree overlay (`irq.dtbo`)
+![img](button_input.jpg)
 * **Device Driver Variants:**
   * `bad_irq.ko`: intentionally performs a busy loop directly inside the ISR.
   * `workqueue_irq.ko`: schedules the same busy loop through a Linux Workqueue.

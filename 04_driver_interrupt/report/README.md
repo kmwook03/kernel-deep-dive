@@ -11,6 +11,7 @@
 * **Hardware:** Raspberry Pi 5 Model B Rev 1.0
 * **OS / Kernel:** Raspberry Pi OS, Linux `6.18.34+rpt-rpi-2712` (`aarch64`)
 * **Interrupt Source:** custom Device Tree overlay (`irq.dtbo`)를 통해 등록된 GPIO 17 button input
+  ![img](button_input.jpg)
 * **Device Driver Variants:**
   * `bad_irq.ko`: ISR 내부에서 의도적으로 무거운 Busy loop를 실행하는 드라이버.
   * `workqueue_irq.ko`: 동일한 Busy loop를 리눅스 Workqueue를 통해 스케줄링하는 드라이버.

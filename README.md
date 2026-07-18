@@ -44,3 +44,8 @@
 * **Directory:** [`/04_driver_interrupt`](./04_driver_interrupt/)
 * **Summary:** Raspberry Pi 5 하드웨어 환경에서 의도적으로 무겁게 설계된 ISR과 Workqueue 기반의 지연(Deferred) 설계를 비교하여, Top Half 및 Bottom Half 인터럽트 처리 분리의 중요성을 검증했습니다.
 BCC/eBPF 트레이스포인트를 활용해 IRQ 핸들러 실행 시간을 측정한 결과, 잘못 설계된 드라이버는 평균 126.19 ms 동안 하드 인터럽트 컨텍스트에서 CPU를 점유한 반면, Workqueue 기반 설계는 오래 걸리는 작업을 커널 워커 스레드(Worker thread)로 위임함으로써 관측된 Top Half 소요 시간을 단 2.73 us로 감소시켰습니다.
+
+### ⏳ [STEP 5] Memory Subsystem: Bypassing OS Page Faults via Lazy Allocation (HugePages & userfaultfd)
+* **Status:** Planned
+* **Directory:** `/05_memory_subsystem`
+* **Goal:** 대규모 메모리 접근 시 발생하는 하드웨어(TLB) 및 OS(Page Fault) 레벨의 병목을 관측하고, HugePages와 유저 스페이스 페이지 폴트 핸들링(`userfaultfd`)을 통해 이를 최적화한다.

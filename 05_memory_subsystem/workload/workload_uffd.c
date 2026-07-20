@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -11,6 +12,9 @@
 #include <sys/ioctl.h>
 #include <linux/userfaultfd.h>
 
+#define SIZE (1ULL * 1024 * 1024 * 1024) // 1GB
+#define ITERATIONS 100
+
 long page_size;
 
 void *fault_handler_thread(void *arg) {
@@ -20,6 +24,10 @@ void *fault_handler_thread(void *arg) {
 
     printf("[Worker] Ready to handle Page Faults...\n");
 
+    // Allocate temp page once to avoid malloc overhead in the loop
+    char *temp_page = malloc(page_size);
+    memset(temp_page, 'A', page_size); // Simulate data fetch
+
     while (poll(&pollfd, 1, -1) > 0) {
         // Read an event message from the kernel
         if (read(uffd, &msg, sizeof(msg)) == 0) {
@@ -27,17 +35,13 @@ void *fault_handler_thread(void *arg) {
         }
 
         if (msg.event != UFFD_EVENT_PAGEFAULT) {
-            fprintf(stderr, "[Worker] Unexpected event\n");
+            // fprintf(stderr, "[Worker] Unexpected event\n");
             continue;
         }
 
         // Address of the faulting page
         void *fault_addr = (void *)msg.arg.pagefault.address;
-        printf("[Worker] Page Fault detected at %p! Fetching data...\n", fault_addr);
-
-        // Simulation: Get data from disk and network
-        char *temp_page = malloc(page_size);
-        memset(temp_page, 'A', page_size); // Simulate data fetch
+        // printf("[Worker] Page Fault detected at %p! Fetching data...\n", fault_addr);
 
         // UFFDIO_COPY: Copy temp_page data to the faulting address 
         // and wake up the faulting thread
@@ -53,15 +57,15 @@ void *fault_handler_thread(void *arg) {
             exit(1);
         }
 
-        printf("[Worker] Page filled and Main Thread awakened.\n");
-        free(temp_page);
+        // printf("[Worker] Page filled and Main Thread awakened.\n");
     }
+    free(temp_page);
     return NULL;
 }
 
 int main() {
     page_size = sysconf(_SC_PAGESIZE);
-    size_t alloc_size = page_size * 4; // test 4 pages
+    size_t alloc_size = SIZE; // 1GB
 
     // 1. create userfaultfd
     int uffd = syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK);
@@ -72,14 +76,14 @@ int main() {
 
     struct uffdio_api uffdio_api = { .api = UFFD_API, .features = 0 };
     if (ioctl(uffd, UFFDIO_API, &uffdio_api) == -1) {
-        perror("ioctl(UFFDIO_API) failed");
+        // perror("ioctl(UFFDIO_API) failed");
         return 1;
     }
 
     // 2. Allocate memory region with mmap
-    void *addr = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    uint8_t *addr = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (addr == MAP_FAILED) {
-        perror("mmap failed");
+        // perror("mmap failed");
         return 1;
     }
 
@@ -89,7 +93,7 @@ int main() {
     uffdio_register.range.len = alloc_size;
     uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING;
     if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == -1) {
-        perror("ioctl(UFFDIO_REGISTER) failed");
+        // perror("ioctl(UFFDIO_REGISTER) failed");
         return 1;
     }
 
@@ -100,12 +104,18 @@ int main() {
     printf("[Main] Triggering memory accesses...\n");
 
     // 5. if main thread accesses the memory region, it will trigger a page fault
-    for (size_t i = 0; i < alloc_size; i += page_size) {
-        printf("\n[Main] Reading address %p...\n", addr + i);
-        // main thread will block here until the worker thread handles the page fault
-        char c = *((char *)(addr + i));
-        printf("[Main] Data read success: '%c'\n", c);
+    // for (size_t i = 0; i < alloc_size; i += page_size) {
+    //     // printf("\n[Main] Reading address %p...\n", addr + i);
+    //     // main thread will block here until the worker thread handles the page fault
+    //     char c = *((char *)(addr + i));
+    //     // printf("[Main] Data read success: '%c'\n", c);
+    // }
+    for (int i = 0; i < ITERATIONS; i++) {
+        for (uint64_t j = 0; j < SIZE; j += page_size) {
+            addr[j] = (uint8_t)(i & 0xFF);
+        }
     }
 
+    printf("[Main] Memory access complete.\n");
     return 0;
 }

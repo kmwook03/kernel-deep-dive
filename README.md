@@ -1,7 +1,7 @@
 # 🐧 Linux Kernel Deep Dive
-고가용성 및 실시간성이 요구되는 시스템(방산 체계, AI 인프라)을 위한 **리눅스 커널 심층 분석 및 최적화 프로젝트** 입니다.
+고가용성과 낮은 지연이 요구되는 시스템을 대상으로 하는 **리눅스 커널 심층 분석 및 최적화 프로젝트**이다.
 
-시스템의 병목을 식별하고 제로 오버헤드로 관측하며, 하드웨어 자원을 극한으로 최적화하는 아키텍처 설계를 학습합니다.
+eBPF, XDP, 스케줄러, 인터럽트, 메모리 서브시스템을 실험적으로 관측하고, 운영체제 정책과 하드웨어 자원이 성능에 미치는 영향을 정량화한다.
 
 ## 🛠️ Tech Stack
 * **Language**
@@ -14,9 +14,9 @@
   <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) ![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-412991?style=for-the-badge&logo=openai&logoColor=white) *(가설 설정, 검증 및 커널 아키텍처 멘토링)*
 
 ## 📌 Architecture & Environment Note
-초기 커널 관측 및 스케줄러 분석(Step 1, 2)은 BTF(BPF Type Format)가 활성화된 WSL2 환경에서 CO-RE(Compile Once, Run Everywhere) 메커니즘을 활용하여 진행합니다.
+커널 관측과 스케줄러 분석(STEP 1·2)은 BTF(BPF Type Format)가 활성화된 WSL2에서 CO-RE(Compile Once, Run Everywhere) 기반으로 수행했다.
 
-이후 하드웨어 레벨의 네트워크 버퍼 제어(XDP) 및 인터럽트 제어(Step 3, 4)를 위해 네이티브 리눅스(Raspberry Pi 등) 환경으로 타겟을 마이그레이션할 계획입니다.
+네트워크 필터링(STEP 3)은 WSL2 루프백의 generic XDP에서, 인터럽트와 메모리 서브시스템 실험(STEP 4·5)은 Raspberry Pi 5 기반 네이티브 Linux 환경에서 수행했다. 따라서 각 결과는 해당 커널, 하드웨어, 실험 조건의 범위에서 해석한다.
 
 ---
 
@@ -26,26 +26,25 @@
 * **Status:** Completed
 * **Directory:** [`/01_observability_ebpf`](./01_observability_ebpf/)
 * **Summary:** 
-  기존 시스템 콜 추적 도구(`strace`)가 유발하는 유저-커널 간의 Context Switch 오버헤드를 수치화하고, eBPF의 Zero-overhead 특성을 확인합니다.
-  컨테이너 격리(`clone`)를 10,000회 반복하는 부하 환경에서, `strace`는 약 **2.89초**의 커널 CPU 시간(`sys`)을 소모한 반면, 커널 내부에서 JIT 컴파일되어 실행되는 `eBPF`는 단 **1.40초**만을 소모하여 성능 저하 없는 동적 추적(Dynamic Tracing)이 가능함을 보았습니다.
+  `clone`과 `wait4`를 10,000회 반복한 워크로드에서 `strace`는 커널 CPU 시간 2.89초, eBPF는 1.40초를 기록했다. 본 조건에서 커널 내 추적이 `ptrace` 기반 추적보다 작은 교란을 보였다. 단, Baseline은 Cold Start 1회 측정이므로 절대 오버헤드는 반복 실험으로 추가 검증해야 한다.
 
 ### ✅ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
 * **Status:** Completed
 * **Directory:** [`/02_memory_cfs`](./02_memory_cfs/)
-* **Summary:** eBPF를 활용해 커널 레벨의 마이크로초(us) 단위 꼬리 지연(Tail Latency) 원인(CFS 스케줄링 경합 및 Page Fault 병목)을 분석하고, 코어 친화도(CPU Affinity)와 우선순위(Nice) 튜닝을 통해 극한의 스케줄링 환경(CPU Starvation)을 성공적으로 확인했습니다.
+* **Summary:** eBPF로 CFS 실행 대기열과 `handle_mm_fault` 지연 분포를 측정했다. 단일 CPU에서 nice -20과 nice 19를 경쟁시킨 결과 일부 일반 스레드의 대기 시간이 1초 이상으로 증가하여, CPU 친화도와 우선순위가 기아 가능성에 미치는 영향을 확인했다.
 
-### ✅ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
+### ✅ [STEP 3] Network: Early Packet Drop with Generic XDP
 * **Status:** Completed
 * **Directory:** [`/03_network_xdp`](./03_network_xdp/)
-* **Summary:** 전통적인 리눅스 네트워크 스택(`sk_buff` 할당)이 유발하는 구조적 병목을 분석하고, eBPF/XDP를 통해 NIC 드라이버 레벨에서 악성 UDP 패킷을 즉시 드랍(OS Bypass)함으로써 공격 방어 속도를 2배 이상 끌어올린 고속 Zero-copy 방화벽을 구현했습니다.
+* **Summary:** WSL2 루프백의 generic XDP에서 9999번 포트 UDP 패킷을 `XDP_DROP`으로 조기 폐기했다. 패킷이 AF_PACKET 관측 지점에 도달하지 않았고, 동일 호스트의 송신 처리량은 200,000~300,000 pkt/s에서 610,000~620,000 pkt/s로 증가했다.
 
 ### ✅ [STEP 4] Interrupt Handling: Designing Low-Latency Linux Device Drivers (Top & Bottom Half)
 * **Status:** Completed
 * **Directory:** [`/04_driver_interrupt`](./04_driver_interrupt/)
-* **Summary:** Raspberry Pi 5 하드웨어 환경에서 의도적으로 무겁게 설계된 ISR과 Workqueue 기반의 지연(Deferred) 설계를 비교하여, Top Half 및 Bottom Half 인터럽트 처리 분리의 중요성을 검증했습니다.
-BCC/eBPF 트레이스포인트를 활용해 IRQ 핸들러 실행 시간을 측정한 결과, 잘못 설계된 드라이버는 평균 126.19 ms 동안 하드 인터럽트 컨텍스트에서 CPU를 점유한 반면, Workqueue 기반 설계는 오래 걸리는 작업을 커널 워커 스레드(Worker thread)로 위임함으로써 관측된 Top Half 소요 시간을 단 2.73 us로 감소시켰습니다.
+* **Summary:** Raspberry Pi 5에서 ISR 내 busy loop와 Workqueue 위임 구조를 비교했다. BCC/eBPF로 측정한 IRQ 핸들러 평균 실행 시간은 126.19 ms에서 2.73 μs로 감소했다. 이 결과는 전체 작업이 제거된 것이 아니라 하드 IRQ 경로에서 워커 스레드로 이동했음을 의미한다.
 
-### ⏳ [STEP 5] Memory Subsystem: Bypassing OS Page Faults via Lazy Allocation (HugePages & userfaultfd)
-* **Status:** Planned
-* **Directory:** `/05_memory_subsystem`
-* **Goal:** 대규모 메모리 접근 시 발생하는 하드웨어(TLB) 및 OS(Page Fault) 레벨의 병목을 관측하고, HugePages와 유저 스페이스 페이지 폴트 핸들링(`userfaultfd`)을 통해 이를 최적화한다.
+### ✅ [STEP 5] Memory Subsystem: Page-Fault Policy and Large-Page Evaluation (THP & userfaultfd)
+* **Status:** Completed
+* **Directory:** [`/05_memory_subsystem`](./05_memory_subsystem/)
+* **Goal:** 대규모 메모리 접근의 dTLB miss와 페이지 폴트 처리 비용을 관측하고, THP와 `userfaultfd`를 이용한 메모리 정책 제어를 검증한다.
+* **Summary:** Raspberry Pi 5에서 1 GB 영역을 4 KB 간격으로 접근한 Baseline은 페이지 폴트 262,194회와 dTLB load miss 23,321,474회를 기록했다. `MADV_HUGEPAGE`를 적용하면 각 지표가 91.4%와 85.3% 감소했고, `sys` 시간은 24.5%, 벽시계 시간은 3.6% 단축되었다. 또한 `userfaultfd`로 폴트 이벤트를 워커 스레드에 전달하고 `UFFDIO_COPY`로 페이지를 공급하여, 페이지 해결 정책을 사용자 공간에서 제어할 수 있음을 확인했다.

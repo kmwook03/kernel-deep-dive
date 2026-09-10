@@ -1,28 +1,28 @@
 # 02. Performance: CFS Scheduler & Page Fault Analysis
 
 ## 📌 Objective
-This step aims to trace the root causes of **'Tail Latency'** at the kernel level—those unexplained system delays that occur even when overall CPU or memory utilization is not at 100%. 
+This experiment traces the kernel-level causes of tail latency that occurs even when aggregate CPU and memory utilization remain below 100%.
 
-By observing microsecond (us) scale scheduler wait times (Runqueue Latency) and memory allocation bottlenecks (Page Faults) using eBPF—metrics that are invisible to standard monitoring tools like `top` or `htop`—I seek to learn the critical performance tuning points required for real-time and high-availability environments.
+It uses eBPF to observe microsecond-scale run-queue latency and page-fault processing latency that aggregate tools such as `top` and `htop` may obscure. It also evaluates how CPU affinity and nice values affect scheduling.
 
 ## 🛠️ Test Environment & Target Workload
-* **Target Workload:** A multi-threaded C program (`stress_test.c`) that spawns 8 threads, each dynamically allocating 512MB of memory. It intentionally triggers intensive Page Faults and CPU contention via randomized memory access.
-* **Observability Tools:** `bpftrace` utilizing kernel tracepoints (`sched_switch`) and kprobes (`handle_mm_fault`).
+* **Target Workload:** A C program (`stress_test.c`) with eight threads, each allocating 512 MB and performing randomized accesses to induce page faults and CPU contention.
+* **Observability Tools:** `bpftrace` probes on the `sched_switch` tracepoint and the `handle_mm_fault` kprobe.
 
 ## 📊 1. CFS Scheduler Analysis (Runqueue Latency)
-Measured the wait time from when a thread enters the execution queue (Runqueue) to when it actually gets scheduled onto the CPU.
-* **Fast Path:** Over 95% of the scheduling events were executed at lightning speed, within 0~32us.
-* **Tail Latency:** As thread contention intensified, the Completely Fair Scheduler (CFS) forced context switches to maintain fairness. During this, I observed a critical tail latency phase where threads waited up to **32ms (32,000us)** without receiving CPU time.
+The measurement spans from entry into the runnable queue until CPU dispatch.
+* **Fast Path:** Most observations fall in the 0–32 μs range.
+* **Tail Latency:** Under contention, some threads wait for 16–32 ms. The tail is interpreted as the combined effect of runnable-task contention and the CFS fairness policy.
 
 ## 📊 2. Memory Subsystem Analysis (Page Fault Latency)
-Measured the execution time of the `handle_mm_fault` function (which maps physical memory to virtual memory), revealing a clear **Bimodal Distribution**.
-* **Minor Page Fault (Under 1us):** When free memory was readily available, the mapping was handled incredibly fast, taking less than 1us.
-* **Major Page Fault / Compaction (0.5ms ~ 8ms):** When system memory pressure increased and the kernel had to secure physical memory (e.g., via Swapping or Memory Compaction), a massive bottleneck formed. In this zone, latency spiked by up to **4,000 times (over 4ms)** compared to the fast path.
+The execution time of `handle_mm_fault` exhibits a bimodal distribution concentrated below 1 μs and between 0.5 and 8 ms.
+* **Short Path (under 1 μs):** Most fast fault handling falls in this range.
+* **Long Path (0.5–8 ms):** Under memory pressure, some fault-processing times rise to the millisecond scale. Because the current probe measures only `handle_mm_fault` duration, it cannot independently attribute this range to major faults, swap, or compaction.
 
-## 💡 Engineering Conclusion
-This experiment verified that system response times are not solely dictated by application-level code optimization; the **OS kernel's scheduling queues and memory fragmentation states** play a decisive role. 
+## 💡 Conclusion
+The results show that scheduler queue state and page-fault handling contribute to response-time tails in addition to application code.
 
-Moving forward, this hands-on experience deeply reinforced the necessity of minimizing kernel intervention (e.g., avoiding Hard Page Faults and excessive Context Switches) by utilizing techniques like Memory Pooling and adjusting CPU Affinity when designing high-performance system architectures.
+Latency-sensitive workloads should separately evaluate memory pooling, prefaulting, and CPU affinity to control page faults and scheduling contention.
 
 <details>
 <summary><b>Terminal Output</b></summary>
@@ -82,11 +82,11 @@ Tracing Page Fault Latency for 'stress_test'... Hit Ctrl-C to end.
 </details>
 
 ## 🔧 Performance Tuning Attempts
-The previously observed 32ms tail latency is believed to be caused by the Completely Fair Scheduler (CFS) attempting to distribute CPU time equally among all threads.
+The 16–32 ms tail is hypothesized to arise when runnable threads compete under the CFS fairness policy.
 
-However, critical tasks like missile interception systems or autonomous driving braking controls do not require fairness; they require absolute, unconditional priority execution.
+Unlike general-purpose fairness, some real-time control tasks require deadlines for specific tasks. A priority-differentiation experiment models this requirement.
 
-To investigate this, I modified the `stress_test.c` code (`stress_test2.c`) to elevate the priority of a specific thread (Thread 0) using Linux's real-time scheduling policies (`SCHED_FIFO` or `SCHED_RR`) and re-measured the load.
+In `stress_test2.c`, only Thread 0 is configured with `SCHED_FIFO` or `SCHED_RR`, after which the workload is remeasured.
 
 ### 💥 Encountered Issues
 ```bash
@@ -96,17 +96,17 @@ Thread 0 (RT) failed to create - sudo permission required: Success
 ```
 
 #### Problem 1. Simultaneous output of `failed` and `Success`
-The `perror()` function used for error output reads the global variable `errno` and converts it to a string. However, `pthread` library functions do not set `errno` upon failure; instead, they return the error code directly as the function's return value.
+`perror()` formats the global `errno` value. POSIX thread functions, however, generally return an error number directly instead of setting `errno`.
 
-Therefore, `errno` was still `0` (Success), and `perror()`, which only reads `errno`, mistakenly printed `Success`.
+Because `errno` remained zero, the failure message was followed by `Success`. The returned error number should instead be passed to `strerror()`.
 
 #### Problem 2. Permission Denied (EPERM) despite using `sudo`
-To maintain host stability, WSL2 and many container environments fundamentally block the use of real-time scheduling (like `SCHED_FIFO`/`SCHED_RR`) by limiting or zeroing out the cgroup's RT bandwidth.
+WSL2 and some container environments may reject `SCHED_FIFO` or `SCHED_RR` because of RT-bandwidth settings or capability restrictions. In this environment, the call returned `EPERM` even with administrator privileges.
 
-This is a defensive mechanism designed to prevent an RT busy loop inside the guest/container from causing CPU starvation on the host machine.
+Such restrictions reduce the risk that an RT busy loop in a guest or container will starve the host CPU.
 
 ### 💡 Workaround Strategy: Extreme Priority (Nice) Manipulation within CFS
-Instead of rebuilding the WSL2 kernel to bypass the cgroup restrictions, I shifted the experiment's focus to see if the VIP thread could be protected by **manipulating process priorities (Nice values) to their extremes within the allowed CFS environment.**
+Because the real-time policies could not be applied, the experiment was narrowed to nice-value differentiation within CFS. This is not a substitute for real-time scheduling; it evaluates the effect of CFS weights.
 
 1. **Strategy:** Assign the highest kernel-allowed priority (Nice -20) to a specific thread (Thread 0), and the lowest priority (Nice 19) to the rest using the setpriority system call.
 
@@ -165,19 +165,19 @@ Tracing CPU Runqueue Latency ... Hit Ctrl-C to end.
 </details>
 
 
-I expected Thread 0 to execute and finish first, but the results did not align with my hypothesis. The cause was analyzed as follows:
+Thread 0 was expected to finish first, but the observed completion order differed. The result is analyzed as follows.
 
 #### The Multi-core Trap
-Scheduler priority (nice value) is only meaningful when multiple threads compete for a single CPU core **(Contention)**.
+Scheduler priority has its clearest effect when multiple runnable threads compete for the same CPU.
 
-The laptop I used for this research (LG gram 360 2022) is equipped with an `11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz(2.42 GHz)` CPU.
+The test host is a 2022 LG gram 360 with an Intel Core i5-1135G7 and eight logical CPUs visible to the operating system.
 
-Thanks to Intel's Hyper-Threading technology, the OS recognizes 8 logical cores. Therefore, the 8 threads were distributed almost 1-to-1 across the logical cores. Because no actual queue or contention formed, the priority scenario failed to execute as intended.
+With eight threads on eight logical CPUs, threads can execute concurrently on separate CPUs, reducing contention in any single run queue. This likely obscured the effect of nice values on completion order.
 
 ### 📊 4. Scheduling Control Tuning Result 2 (Single-core)
 
-#### The Solution (`taskset -c 0`)
-I restricted the execution to a single core using CPU Affinity.
+#### CPU Affinity (`taskset -c 0`)
+All threads are restricted to one CPU to expose competition within a single run queue.
 
 <details>
 <summary><b>Terminal Output</b></summary>
@@ -250,10 +250,10 @@ Tracing CPU Runqueue Latency ... Hit Ctrl-C to end.
 ```
 </details>
 
-Looking at the eBPF histogram, unlike the previous results, the tail extended dramatically to the `[1M, 2M)` bucket. Because I tested this in a single-core environment (triggering severe contention), the lower-priority threads were pushed down the queue, starving for over 1 second without receiving any CPU allocation.
+The eBPF histogram extends to the `[1M, 2M)` bucket. When nice -20 and nice 19 threads compete on one CPU, some lower-weight threads can wait for more than one second.
 
 ## ❓Additional Experiment: Observing CFS Behavior on a Single Core
-Since the very first experiment was conducted in a multi-core environment, I ran it again under a single-core constraint to observe pure CFS behavior.
+To remove the reduction in contention caused by multiple CPUs, all threads are pinned to one CPU with `taskset -c 0` and remeasured under the same CFS policy.
 
 <details>
 <summary><b>Terminal Output</b></summary>
@@ -303,26 +303,26 @@ Tracing CPU Runqueue Latency ... Hit Ctrl-C to end.
 ```
 </details>
 
-In the previous VIP test, normal threads suffered from CPU Starvation, waiting 1~2 seconds without execution. However, this pure CFS test histogram shows that the maximum wait time was much shorter, capped at 32ms~64ms.
+In the earlier extreme nice-value experiment, normal-thread wait times reached the 1–2 s range. With equal nice values on one CPU, the largest observed bucket is 32–64 ms.
 
-While an algorithm with a shorter tail latency might generally seem "better," it strictly depends on the domain.
+Fairness reduces skew in waiting time, whereas real-time scheduling targets deadline guarantees for selected tasks. These are distinct objectives.
 
-For general-purpose systems (web servers, desktops), CFS is overwhelmingly superior. However, in hard real-time systems (defense radars, autonomous driving, pacemakers), CFS is a dangerous choice that could threaten lives. If fairness dictates that a critical missile interception system is queued behind a file download thread, the consequences would be fatal.
+For general-purpose workloads, CFS balances throughput and interactivity through fairness. Hard real-time systems instead require worst-case response guarantees, which CFS fairness alone cannot provide. Such systems must combine appropriate real-time policies with CPU isolation, priority-inversion handling, and worst-case execution-time analysis.
 
-## 💡 Final Conclusion & Engineering Insight
+## 💡 Final Conclusion
 
-By hooking into and tuning the Linux kernel's scheduler (CFS) and memory subsystem (Page Fault) directly with eBPF, I gained the following profound insights:
+The eBPF observations of CFS and page-fault paths, together with CPU-affinity and nice-value changes, support the following conclusions:
 
 1. **The Importance of Microsecond-Level Observability**
 
-   User-space tools like `top` or `htop` can easily mask fatal internal bottlenecks, even when CPU usage appears low. To capture millisecond to microsecond-level tail latencies and CPU Starvation, kernel-level dynamic tracing technologies like eBPF are indispensable.
+   Aggregate utilization from `top` or `htop` cannot identify microsecond-to-millisecond tail latency. eBPF event tracing separates the distributions of scheduler waits and fault-handling times.
 
 2. **The Duality of OS Resource Management Across Domains**
 
-   I proved that there is no 'absolutely perfect algorithm' for scheduling. While the 'fairness' of CFS works brilliantly to prevent starvation in general environments, this very fairness induces fatal delays in domains requiring Hard Real-time capabilities, such as missile interception radar systems or real-time AI inference infrastructure. I realized the importance of having the skill to manipulate and control OS policies according to the specific purpose.
+   CFS fairness and deadline guarantees in real-time scheduling serve different design goals. Scheduling policy should therefore be selected according to domain requirements such as general-purpose throughput, interactivity, and worst-case response time.
 
 3. **Organic Understanding of Hardware Architecture and the Kernel**
 
-   I encountered firsthand how the effects of software scheduling priority (Nice) are diluted in a multi-core environment based on Hyper-Threading. I empirically confirmed that software priority tuning must be accompanied by the physical isolation of hardware resources—using **CPU Affinity** controls like `taskset`—to unleash its true power.
+   When the number of logical CPUs equals the number of runnable threads, reduced contention can obscure the effect of nice values. Pinning the workload with `taskset` exposed the priority effect but also produced waits longer than one second for lower-weight threads. CPU affinity and priority therefore cannot be interpreted independently.
 
-🚀 **Next Step:** Having deeply understood the overhead caused by internal kernel scheduling and memory copying (Page Faults), my next phase will expand into **XDP (eXpress Data Path)-based Zero-copy Firewall Architecture**. This will involve intercepting and dropping massive incoming network traffic directly at the NIC driver level, long before it ever reaches the kernel's network stack (`sk_buff`).
+**Next Step:** The next phase evaluates XDP filtering before packets traverse the `sk_buff`-based upper network stack.

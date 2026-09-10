@@ -1,7 +1,7 @@
 # 🐧 Linux Kernel Deep Dive
-A personal portfolio documenting my journey to understand and optimize the Linux kernel, with a focus on the stability and real-time requirements of mission-critical environments (e.g., defense systems, AI infrastructure).
+A Linux kernel analysis and optimization project for systems that require high availability and low latency.
 
-Through this ongoing project, I aim to study how to identify system bottlenecks in practice, apply low-overhead observability tools, and write more resource-efficient system software.
+The project experimentally observes eBPF, XDP, schedulers, interrupts, and the memory subsystem, and quantifies how operating-system policies and hardware resources affect performance.
 
 ## 🛠️ Tech Stack
 * **Language**
@@ -11,33 +11,40 @@ Through this ongoing project, I aim to study how to identify system bottlenecks 
 * **Observability & Network**
   <br>![eBPF](https://img.shields.io/badge/eBPF-4479A1?style=for-the-badge&logo=linux&logoColor=white) ![XDP](https://img.shields.io/badge/XDP-E34F26?style=for-the-badge&logo=linux&logoColor=white) *(CO-RE, BCC, libbpf / eXpress Data Path)*
 * **AI Pair Programming**
-  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) ![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-412991?style=for-the-badge&logo=openai&logoColor=white)*(Hypothesis setting, validation, and kernel architecture mentorship)*
+  <br>![Gemini](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) ![OpenAI Codex](https://img.shields.io/badge/OpenAI_Codex-412991?style=for-the-badge&logo=openai&logoColor=white) *(hypothesis formulation, validation, and kernel architecture mentoring)*
 
 ## 📌 Architecture & Environment Note
-Initial kernel observability and scheduler analysis (Steps 1 & 2) are conducted in a WSL2 environment with BTF (BPF Type Format) enabled, utilizing the CO-RE (Compile Once – Run Everywhere) mechanism.
+Kernel observability and scheduler analysis (STEP 1·2) were performed on BTF-enabled WSL2 using CO-RE (Compile Once – Run Everywhere).
 
-For subsequent hardware-level network buffer control (XDP) and interrupt handling (Steps 3 & 4), the target environment will be migrated to Native Linux (e.g., Raspberry Pi).
+Network filtering (STEP 3) was evaluated with generic XDP on the WSL2 loopback interface. The interrupt and memory-subsystem experiments (STEP 4·5) were performed on native Linux running on a Raspberry Pi 5. Each result is therefore interpreted within the scope of its kernel, hardware, and experimental conditions.
 
 ---
+
+## 🗺️ Deep Dive Roadmap & Status
 
 ### ✅ [STEP 1] Observability: ptrace vs. eBPF (Context Switch Overhead Analysis)
 * **Status:** Completed
 * **Directory:** [`/01_observability_ebpf`](./01_observability_ebpf/)
 * **Summary:** 
-  Measured the user-kernel space Context Switch overhead caused by traditional tracing tools (`strace`) and verified the low-overhead characteristics of `eBPF` in practice. 
-  Under a stress workload repeating container isolation (`clone`) 10,000 times, `strace` consumed approximately **2.89 seconds** of kernel CPU time (`sys`). In contrast, `eBPF`, which is JIT-compiled and executed directly within the kernel, consumed only **1.40 seconds**. This hands-on experiment deepened my understanding of how to monitor systems without degrading application performance.
+  In a workload that repeated `clone` and `wait4` 10,000 times, `strace` recorded 2.89 seconds of kernel CPU time, while eBPF recorded 1.40 seconds. In-kernel tracing caused less perturbation than `ptrace`-based tracing under these conditions. Because the Baseline was a single cold-start measurement, repeated trials are required to determine the absolute overhead.
 
 ### ✅ [STEP 2] Performance: CFS Scheduler & Page Fault Analysis (Memory Subsystem)
 * **Status:** Completed
 * **Directory:** [`/02_memory_cfs`](./02_memory_cfs/)
-* **Summary:** Analyzed the root causes of microsecond-level tail latency (CFS scheduling contention and Page Fault bottlenecks) at the kernel level using eBPF, and successfully demonstrated extreme scheduling conditions (CPU Starvation) through CPU Affinity and priority (Nice) tuning.
+* **Summary:** eBPF measured the latency distributions of the CFS run queue and `handle_mm_fault`. When nice -20 and nice 19 threads competed on one CPU, some normal threads waited for more than one second, demonstrating how CPU affinity and priority affect starvation risk.
 
-### ✅ [STEP 3] Network: Zero-copy Firewall using XDP (sk_buff Allocation Bypass)
+### ✅ [STEP 3] Network: Early Packet Drop with Generic XDP
 * **Status:** Completed
 * **Directory:** [`/03_network_xdp`](./03_network_xdp/)
-* **Summary:** Analyzed the structural bottlenecks caused by the traditional Linux network stack (`sk_buff` allocation) and implemented a high-speed Zero-copy firewall. By leveraging eBPF/XDP to instantly drop malicious UDP packets at the NIC driver level (OS Bypass), the defense throughput was boosted by more than 2x.
+* **Summary:** Generic XDP on the WSL2 loopback interface dropped UDP packets for port 9999 early with `XDP_DROP`. The packets did not reach the AF_PACKET observation point, and sender throughput on the same host increased from 200,000–300,000 pkt/s to 610,000–620,000 pkt/s.
 
-### ✅ [STEP 4] Device Driver: Interrupt Handling Mechanism (Top & Bottom Half)
+### ✅ [STEP 4] Interrupt Handling: Designing Low-Latency Linux Device Drivers (Top & Bottom Half)
 * **Status:** Completed
-* **Directory:** [`/04_driver_interrupt`](/04_driver_interrupt/)
-* **Summary:** Verified the importance of Top Half / Bottom Half interrupt handling on Raspberry Pi 5 hardware by comparing an intentionally heavy ISR with a Workqueue-based deferred design. Using BCC/eBPF tracepoints to measure IRQ handler duration, the bad driver held the CPU in hard interrupt context for an average of **126.19 ms**, while the Workqueue design reduced the measured Top Half duration to only **2.73 us** by moving long-running work into a kernel worker thread.
+* **Directory:** [`/04_driver_interrupt`](./04_driver_interrupt/)
+* **Summary:** An ISR busy loop and a Workqueue-delegated design were compared on a Raspberry Pi 5. BCC/eBPF measurements showed that the mean IRQ-handler duration decreased from 126.19 ms to 2.73 μs. The work was not eliminated; it was moved from the hard-IRQ path to a worker thread.
+
+### ✅ [STEP 5] Memory Subsystem: Page-Fault Policy and Large-Page Evaluation (THP & userfaultfd)
+* **Status:** Completed
+* **Directory:** [`/05_memory_subsystem`](./05_memory_subsystem/)
+* **Goal:** Observe dTLB misses and page-fault processing costs during large-memory access, and evaluate memory-policy control using THP and `userfaultfd`.
+* **Summary:** On a Raspberry Pi 5, the 4 KB Baseline over a 1 GB region recorded 262,194 page faults and 23,321,474 dTLB load misses. With `MADV_HUGEPAGE`, these metrics decreased by 91.4% and 85.3%, respectively; `sys` time decreased by 24.5%, and wall-clock time by 3.6%. A `userfaultfd` worker also received fault events and supplied pages through `UFFDIO_COPY`, demonstrating user-space control over page-resolution policy.

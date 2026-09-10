@@ -1,9 +1,9 @@
 # 01. Observability: ptrace vs. eBPF (Context Switch Overhead Analysis)
 
 ## 📌 Objective
-To quantify the user-kernel space Context Switch overhead caused by the traditional system call tracing tool (`strace`) and to prove the zero-overhead characteristics of in-kernel eBPF (CO-RE) based observability technology.
+This experiment quantifies the user–kernel transition costs introduced by the traditional system-call tracer `strace` and compares them with an eBPF-based tracing mechanism that executes inside the kernel.
 
-Specifically, this project validates an architecture that minimizes the runtime impact of monitoring systems in domains requiring high availability and real-time processing (e.g., defense systems, AI infrastructure).
+Observability tools should minimize their own perturbation of workloads in high-availability and latency-sensitive environments. The experiment compares how two tracing architectures affect kernel CPU time.
 
 ## 🛠️ Test Environment & Target Workload
 * **Target Workload:** A C program (`workload.c`) that sequentially creates and destroys processes (container isolation) 10,000 times using the `clone` system call.
@@ -13,12 +13,14 @@ Specifically, this project validates an architecture that minimizes the runtime 
 
 | Tracing Tool | Kernel CPU Time (`sys`) | Characteristics & Analysis |
 | :--- | :---: | :--- |
-| **Baseline** | 2.29s (Cold Start) | No tracing tool. Includes initial memory page allocation and CPU warm-up costs. |
-| **strace** | **2.89s** | `ptrace` based. Induces a Context Switch per system call. A major cause of kernel bottlenecks. |
-| **bpftrace** | **1.40s** | **eBPF based.** JIT compiled and executed within a kernel sandbox. Virtually zero overhead. |
+| **Baseline** | 2.29s (Cold Start) | No tracing tool is attached; the result includes initial page allocation and CPU warm-up costs. |
+| **strace** | **2.89s** | Based on `ptrace`; it stops the tracee and transfers control to the tracer at system-call entry and exit. |
+| **bpftrace** | **1.40s** | Executes an eBPF program inside the kernel and records less kernel CPU time than `strace` in this experiment. |
 
-## 💡 Engineering Conclusion
-In the process of intercepting 10,000 system calls, `strace` consumed approximately `2.89 seconds` of kernel time, whereas `eBPF` consumed only `1.40 seconds`. This proves that by utilizing eBPF, we can build a kernel-level dynamic tracing and system observability network without degrading application performance.
+## 💡 Conclusion
+While tracing 10,000 `clone` and `wait4` calls, `strace` recorded 2.89 seconds of kernel time (`sys`), whereas eBPF recorded 1.40 seconds.
+
+The Baseline is a single cold-start measurement, and neither repeated trials nor variance are reported. Consequently, the 1.40-second result cannot be interpreted as an absolute cost below the uninstrumented workload, nor does it establish zero eBPF overhead. It shows that in-kernel tracing caused less perturbation than `ptrace`-based tracing under the tested conditions.
 
 ## 🧠 Architecture Analysis: Why is ptrace so slow?
 ```mermaid
@@ -26,7 +28,7 @@ graph TD
     subgraph "Legacy Observability: ptrace (strace)"
         direction TB
         A[Target App <br> User Space] -->|1. Syscall Trap| B(Kernel Space)
-        B -->|2. Context Switch <br> CPU Flush| C[strace <br> User Space]
+        B -->|2. Stop & Notify| C[strace <br> User Space]
         C -->|3. Read Registers & <br> PTRACE_CONT| B
         B -->|4. Context Switch| A
         
@@ -38,7 +40,7 @@ graph TD
         direction TB
         D[Target App <br> User Space] -->|1. Syscall Trap| E(Kernel Space)
         E -->|2. Trigger Tracepoint| F((eBPF Sandbox <br> Kernel Space))
-        F -.->|3. Map Update <br> Zero Copy| F
+        F -.->|3. Map Update| F
         F -->|4. Resume Execution| E
         
         style F fill:#b3ffcc,stroke:#009933,stroke-width:2px,color:black
@@ -46,14 +48,15 @@ graph TD
     end
 ```
 
-### 1. The Limitations of `ptrace` (The Context Switch Bottleneck)
-`strace` operates on top of `ptrace`, the traditional system call used for debugging. 
-Whenever a target process invokes a system call, the kernel generates a `SIGTRAP` to halt the execution state (`TASK_TRACED`) and wakes up the `strace` process in user space to hand over control. 
-During this interception, **heavy Context Switches occur twice per system call, causing memory protection domain shifts and CPU cache/TLB flushes.** This architectural flaw is the fundamental reason why the total kernel CPU time (`sys`) spiked by over 1.8 times in our benchmark.
+### 1. Limitations of `ptrace`
+`strace` operates through the `ptrace` interface. At system-call entry and exit, the kernel stops the tracee so that the user-space tracer can inspect registers and events before resuming execution.
 
-### 2. The `eBPF` Solution (In-Kernel JIT Execution)
-In contrast, `eBPF` allows us to write observability logic in C and inject it directly into an in-kernel sandbox (virtual machine) where it is **JIT (Just-In-Time) compiled**. 
-When the target process makes a system call, the tracing code executes immediately within the kernel space—eliminating the need to bounce back to user space **(Zero Context Switch)**. This mechanism enables safe, real-time dynamic tracing with virtually **zero overhead**, ensuring that production server performance remains completely unaffected.
+This design adds tracer scheduling and state inspection to each system call. It does not, however, imply that every switch flushes the entire TLB: preservation behavior depends on PCID/ASID support, the kernel, and the hardware.
+
+### 2. eBPF In-Kernel Execution
+The eBPF verifier checks a program before the kernel executes it in the eBPF runtime; the kernel may apply JIT compilation when supported and enabled.
+
+When a tracepoint fires, the tracing code runs in kernel context. Processing each event therefore does not require transferring control to a separate user-space tracer. This difference explains the lower cost observed relative to `strace` in this experiment.
 
 <details>
 <summary><b>Terminal Output</b></summary>
@@ -109,3 +112,6 @@ sys 1.40
 
 === Benchmarking Completed ===
 ```
+
+</div>
+</details>

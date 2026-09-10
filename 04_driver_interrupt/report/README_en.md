@@ -1,11 +1,11 @@
 # 04. Interrupt Handling: Low-Latency Device Driver Design
 
 ## 📌 Objective
-This step analyzes the structural reason why Linux device drivers separate interrupt handling into **Top Half** and **Bottom Half**.
+This experiment analyzes why Linux device drivers separate interrupt handling into a Top Half and Bottom Half.
 
-When a hardware interrupt occurs, the CPU immediately stops the currently running task and enters the Interrupt Service Routine (ISR). If the ISR performs heavy processing directly, it monopolizes hard interrupt context for too long, delaying other interrupts and potentially destabilizing the entire system.
+When a hardware interrupt occurs, the CPU interrupts its current work and enters an interrupt service routine (ISR). Performing expensive work directly in the ISR increases time spent in hard-interrupt context and can delay other events and scheduling on the same CPU.
 
-The objective of this experiment is to verify, with real measurements on Raspberry Pi 5 hardware, that moving long-running work out of the ISR and into a **Workqueue-based deferred execution path** dramatically reduces the time spent inside the interrupt handler.
+The experiment measures how moving long-running work from the ISR to a Workqueue-based deferred-execution path changes IRQ-handler residence time on a Raspberry Pi 5.
 
 ## 🛠️ Test Environment & Target Workload
 * **Hardware:** Raspberry Pi 5 Model B Rev 1.0
@@ -18,19 +18,17 @@ The objective of this experiment is to verify, with real measurements on Raspber
 * **Observability Tool:** BCC/eBPF tracepoint program measuring the duration between `irq:irq_handler_entry` and `irq:irq_handler_exit`.
 
 ## 🧪 Experiment Design
-The experiment compares two drivers bound to the same Device Tree compatible string, `kmwook,irq`.
-
-Because both modules target the same platform device, only one module is loaded at a time:
+The experiment compares two drivers bound to the same Device Tree compatible string, `kmwook,irq`. Because both modules target the same platform device, they are loaded and measured separately:
 
 1. Load `bad_irq.ko` and measure how long IRQ 185 stays inside the ISR.
 2. Remove `bad_irq.ko`.
 3. Load `workqueue_irq.ko` and measure the same IRQ again.
 4. Compare the measured Top Half execution time.
 
-The eBPF tracing code does not measure the total completion time of the deferred work. It specifically measures the duration of the hard IRQ handler itself, which is the critical path that must remain short in low-latency driver design.
+The eBPF tracing code measures only the interval between `irq_handler_entry` and `irq_handler_exit`. It includes hard-IRQ handler execution but excludes the start and completion of deferred Workqueue processing.
 
 ## 📊 1. Baseline: Heavy Processing Inside the ISR (`bad_irq`)
-In the intentionally bad implementation, the IRQ handler executes a large busy loop directly in interrupt context:
+In the intentionally inefficient implementation, the IRQ handler executes a long busy loop directly in interrupt context:
 
 ```c
 static irqreturn_t bad_irq_handler(int irq, void *dev_id)
@@ -54,7 +52,7 @@ IRQ Duration (ns)
 118497045
 ```
 
-Although the physical button was pressed four times, six interrupt events were observed. This is expected with a mechanical button because contact bounce can generate multiple falling edges.
+Six interrupt events were observed during four physical button presses. The result is attributed to contact bounce generating multiple falling edges.
 
 | Sample | IRQ Handler Duration |
 | :---: | :---: |
@@ -67,12 +65,12 @@ Although the physical button was pressed four times, six interrupt events were o
 | **Average** | **126.19 ms** |
 
 ### Analysis
-The ISR remained active for roughly **118 ms to 165 ms**. This is extremely long for hard interrupt context.
+The ISR executes for 118.49–164.63 ms, with a mean of 126.19 ms. This is excessive for a Top Half intended primarily to acknowledge an event and save state.
 
-During this time, the CPU is occupied by the interrupt handler instead of quickly acknowledging the event and returning to normal scheduling. In real hardware systems, this kind of design can delay other interrupts, inflate tail latency, and increase the risk of system-wide instability under interrupt storms.
+During this interval, the CPU cannot return to normal task execution. Such a design risks increasing the tail latency of other events handled on the same CPU.
 
 ## 📊 2. Deferred Work: Workqueue-Based Bottom Half (`workqueue_irq`)
-In the improved implementation, the ISR only schedules work and returns immediately:
+In the improved implementation, the ISR schedules work and then returns:
 
 ```c
 static irqreturn_t workqueue_irq_handler(int irq, void *dev_id)
@@ -85,7 +83,7 @@ static irqreturn_t workqueue_irq_handler(int irq, void *dev_id)
 }
 ```
 
-The heavy busy loop still exists, but it runs later in process context through the Workqueue:
+The same busy loop executes in Workqueue process context:
 
 ```c
 static void work_handler(struct work_struct *work)
@@ -124,7 +122,7 @@ IRQ Duration (ns)
 | 7 | 1.462 us |
 | **Average** | **2.73 us** |
 
-The workqueue-based design reduced the measured IRQ handler duration by approximately **46,000x** compared with the average `bad_irq` result.
+The mean IRQ-handler duration of the Workqueue design is approximately 1/46,000 of the `bad_irq` result.
 
 ## 🧠 Architecture Analysis: Why Workqueue Changes the Result
 ```mermaid
@@ -151,48 +149,48 @@ graph TD
 ```
 
 ### 1. The Problem: Long ISR Execution
-An interrupt handler runs in a special context where many normal kernel operations are restricted. It should acknowledge the hardware event, save minimal state, schedule follow-up work if necessary, and return as quickly as possible.
+An interrupt handler runs in a special context where many normal kernel operations are restricted. It should acknowledge the event, save minimal state, schedule any necessary follow-up work, and return quickly.
 
-The `bad_irq` driver violates this rule by running the expensive loop directly inside the ISR. As the measurement shows, this stretched the Top Half duration into the **hundreds of milliseconds** range.
+The `bad_irq` driver instead executes an expensive loop in the ISR, increasing Top Half duration beyond 100 ms.
 
-Furthermore, while the ISR runs, local interrupts on that CPU core are disabled, meaning critical hardware events—such as network packets or timer ticks—can be dropped or severely delayed.
+While the handler runs, re-entry on that IRQ line and some interrupt handling may be restricted, increasing the latency of other events such as network and timer activity. The exact masking scope depends on the interrupt controller and handler configuration.
 
 ### 2. The Solution: Deferred Work
-The `workqueue_irq` driver converts the heavy operation into deferred work.
+The `workqueue_irq` driver converts the expensive operation into deferred work.
 
-The ISR no longer performs the expensive operation itself. Instead, it calls `schedule_work()`, returns after a few microseconds, and lets a kernel worker thread handle the slow path later.
+The ISR calls `schedule_work()`, returns within microseconds, and delegates the slow path to a kernel worker thread.
 
-This is the core design principle of Top Half / Bottom Half interrupt handling: keep the urgent path short, then move non-urgent processing into a safer execution context.
+This is the core Top Half/Bottom Half principle: keep the urgent path short and move the remaining work to an execution context that provides the required facilities.
 
 ## 🔭 Limitations & Future Research
-This experiment successfully demonstrated the difference between a heavy ISR and a Workqueue-based deferred design, but several limitations remain.
+The experiment demonstrates a difference in Top Half duration between a heavy ISR and a Workqueue-based design, subject to the following limitations.
 
 1. **Mechanical Button Bounce**
 
-   The interrupt source was a physical button connected to GPIO 17. Because mechanical switches can generate multiple falling edges from a single press, the number of observed IRQ events was larger than the number of physical button presses. This is acceptable for proving the architectural difference, but future experiments should use a cleaner signal source such as a GPIO pulse generator, microcontroller, or hardware debouncing circuit.
+   A physical button on GPIO 17 was used as the interrupt source. Contact bounce produced more IRQ events than button presses. A follow-up experiment should control the input with a pulse generator or hardware-debouncing circuit.
 
 2. **Top Half Measurement Only**
 
-   The current eBPF program measures only the duration between `irq_handler_entry` and `irq_handler_exit`. Therefore, it captures how long the ISR runs, but it does not measure when the deferred Workqueue task actually starts or finishes. A future version should trace Workqueue events or add kernel timestamps inside `work_handler()` to measure end-to-end latency from interrupt arrival to deferred work completion.
+   The eBPF program measures only the interval between `irq_handler_entry` and `irq_handler_exit`; it does not capture Workqueue start or completion. Workqueue tracepoints or timestamps in `work_handler()` are required to measure end-to-end latency from interrupt arrival to work completion.
 
 3. **Single GPIO-Based Scenario**
 
-   This experiment used a simple GPIO interrupt. Real production drivers often handle DMA completion, network RX/TX events, storage interrupts, or high-frequency sensor streams. Future research should repeat the same Top Half / Bottom Half comparison under higher interrupt rates and with more realistic hardware workloads.
+   The experiment uses a simple GPIO interrupt. The result should be reproduced with realistic driver workloads such as DMA completion, network RX/TX, storage, or high-frequency sensor events.
 
-4. **Workqueue Is Not Always the Only Answer**
+4. **Workqueue Is Not the Only Mechanism**
 
-   Workqueues are useful because they run in process context and can sleep, but they are not always the lowest-latency Bottom Half mechanism. Future experiments should compare Workqueue, Tasklet, SoftIRQ, threaded IRQ, and NAPI-style polling to understand which design is appropriate for each device class.
+   Workqueues execute in process context and may sleep, but they are not optimal for every workload. Workqueue, SoftIRQ, threaded IRQ, and NAPI should be compared according to device latency, throughput, and execution-context requirements.
 
 5. **Real-Time Kernel Tuning**
 
-   This experiment was performed on a standard Raspberry Pi OS kernel. For stricter latency guarantees, future research should evaluate the same driver design on a PREEMPT_RT kernel, then measure how CPU isolation, IRQ affinity, thread priorities, and scheduler policy affect both ISR latency and deferred work latency.
+   The experiment uses a standard Raspberry Pi OS kernel. Evaluating strict latency guarantees requires additional measurements with a PREEMPT_RT kernel, CPU isolation, IRQ affinity, and thread priority as variables.
 
-## 💡 Engineering Conclusion
-This experiment successfully verified why Linux device drivers should avoid doing heavy work inside interrupt handlers.
+## 💡 Conclusion
+The measurements demonstrate why expensive work should be separated from an ISR.
 
-The intentionally bad ISR design held the CPU inside the IRQ handler for an average of **126.19 ms**, while the Workqueue-based design reduced the measured Top Half duration to an average of only **2.73 us**. The work did not disappear; it was moved out of hard interrupt context and into a worker thread where it can be handled without blocking the critical interrupt path.
+The intentionally heavy ISR consumes a mean of 126.19 ms in the IRQ handler. Moving the same computation to a Workqueue reduces the observed Top Half mean to 2.73 μs. The workload is not eliminated; the expensive computation moves from hard-interrupt context to a worker thread.
 
-For high-availability and real-time-oriented systems, this distinction is essential. A driver that appears functionally correct can still be architecturally dangerous if it performs long-running operations in the ISR. By designing drivers around a short Top Half and a deferred Bottom Half, we can reduce interrupt latency, improve system responsiveness, and build a safer foundation for hardware-facing Linux systems.
+Drivers for latency-sensitive systems should keep the Top Half short and move deferrable work to an appropriate Bottom Half. A final design must evaluate end-to-end latency, throughput, and work-coalescing policy in addition to Top Half duration.
 
 <details>
 <summary><b>Terminal Output</b></summary>

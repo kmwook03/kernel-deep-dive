@@ -89,6 +89,7 @@ THP 적용 후 dTLB load miss는 23,321,474회에서 3,414,722회로 85.3% 감�
 
 `poll()`로 `uffd`를 감시하는 워커 스레드는 이벤트를 읽고, 사용자가 정의한 데이터 `'A'`를 `UFFDIO_COPY`로 해당 페이지에 복사한다. 이 작업이 성공하면 차단된 메인 스레드가 재개된다. 이는 페이지 폴트 자체를 우회한 것이 아니라, 커널이 이벤트를 중개하고 사용자 공간이 backing 내용과 시점을 결정하는 구조를 검증한다.
 
+```
  Performance counter stats for './workload_uffd':
 
         5197635385      dTLB-loads                                                            
